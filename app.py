@@ -16,7 +16,25 @@ from modules.auth import check_login
 
 # ====================== CONFIGURACIÓN INICIAL ======================
 st.set_page_config(page_title=APP_NAME, layout="wide")
-init_db()
+
+# Forzar creación de tablas manualmente si init_db() falla
+try:
+    init_db()
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS usuarios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre TEXT NOT NULL,
+            usuario TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            rol TEXT NOT NULL
+        )
+    ''')
+    conn.commit()
+except Exception as e:
+    st.error(f"Error al inicializar la base de datos: {e}")
+
 conn = get_connection()
 
 # ====================== CABECERA (UI) ======================
