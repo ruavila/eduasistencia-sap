@@ -1,0 +1,5 @@
+asistencia.db
+__pycache__/
+.streamlit/
+venv/
+*.pyc
