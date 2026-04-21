@@ -7,5 +7,4 @@ pillow
 pyzbar   # si usas decode en la cámara (aunque no lo usaste aquí)
 opencv-python-headless
 qrcode
-pyzbar
 numpy
