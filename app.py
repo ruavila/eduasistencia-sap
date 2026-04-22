@@ -3,26 +3,24 @@ import os
 import streamlit as st
 import pandas as pd
 from PIL import Image
-import datetime
 
-# Asegurar que Python encuentre la carpeta 'modules'
+# Asegurar que encuentre la carpeta 'modules'
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
-# Importación de módulos propios
 from modules.database import init_db, get_connection
 from modules.config import APP_NAME, APP_SUBTITLE, CREADOR, COLEGIO, ESCUDO_PATH
 from modules.auth import check_login, registrar_usuario
 
-# ====================== CONFIGURACIÓN INICIAL ======================
+# Configuración inicial
 st.set_page_config(page_title=APP_NAME, layout="wide")
 
-# Inicializar base de datos al arrancar
+# Inicializar DB
 try:
     init_db()
 except Exception as e:
     st.error(f"Error de base de datos: {e}")
 
-# ====================== CABECERA (UI) ======================
+# --- Cabecera ---
 col_escudo, col_titulo = st.columns([1, 4])
 with col_escudo:
     if os.path.exists(ESCUDO_PATH):
@@ -30,11 +28,11 @@ with col_escudo:
 
 with col_titulo:
     st.markdown(f"<h1 style='color:#1E3A8A; margin-bottom:0;'>{APP_NAME}</h1>", unsafe_allow_html=True)
-    st.markdown(f"<p style='font-size:1.2em;'>{COLEGIO} | <b>Docente: {CREADOR}</b></p>", unsafe_allow_html=True)
+    st.markdown(f"<p style='font-size:1.1em;'>{COLEGIO} | <b>Docente: {CREADOR}</b></p>", unsafe_allow_html=True)
 
 st.divider()
 
-# ====================== LÓGICA DE ACCESO (LOGIN/REGISTRO) ======================
+# --- Lógica de Acceso ---
 if 'usuario_logueado' not in st.session_state:
     st.session_state.usuario_logueado = None
     st.session_state.nombre_profe = None
@@ -44,97 +42,93 @@ if st.session_state.usuario_logueado is None:
     tab_login, tab_registro = st.tabs(["📧 Iniciar Sesión", "📝 Registrarse"])
 
     with tab_login:
-        u_ingreso = st.text_input("Usuario", key="l_u")
-        p_ingreso = st.text_input("Contraseña", type="password", key="l_p")
+        u_ing = st.text_input("Usuario", key="l_u")
+        p_ing = st.text_input("Contraseña", type="password", key="l_p")
         if st.button("Entrar", type="primary"):
-            datos = check_login(u_ingreso, p_ingreso)
+            datos = check_login(u_ing, p_ing)
             if datos:
-                st.session_state.usuario_logueado = u_ingreso
+                st.session_state.usuario_logueado = u_ing
                 st.session_state.nombre_profe = datos[0]
                 st.rerun()
             else:
-                st.error("Usuario o clave incorrectos.")
+                st.error("Credenciales incorrectas.")
 
     with tab_registro:
         st.subheader("Crear nueva cuenta docente")
-        reg_nom = st.text_input("Nombre Completo", key="r_n")
-        reg_usr = st.text_input("Nombre de Usuario (ID)", key="r_u")
-        reg_pas = st.text_input("Contraseña", type="password", key="r_p")
-        reg_con = st.text_input("Confirmar Contraseña", type="password", key="r_c")
-        
-        if st.button("Finalizar Registro", key="r_btn"):
-            if reg_pas == reg_con and reg_usr and reg_nom:
-                if registrar_usuario(reg_nom, reg_usr, reg_pas):
-                    st.success("✅ ¡Registrado! Ahora puedes iniciar sesión en la otra pestaña.")
+        r_nom = st.text_input("Nombre Completo", key="r_n")
+        r_usr = st.text_input("Nombre de Usuario", key="r_u")
+        r_pas = st.text_input("Contraseña", type="password", key="r_p")
+        r_con = st.text_input("Confirmar Contraseña", type="password", key="r_c")
+        if st.button("Finalizar Registro"):
+            if r_pas == r_con and r_usr and r_nom:
+                if registrar_usuario(r_nom, r_usr, r_pas):
+                    st.success("✅ Registrado con éxito. Ya puedes iniciar sesión.")
                 else:
-                    st.error("❌ El usuario ya existe.")
+                    st.error("El usuario ya existe.")
             else:
-                st.warning("⚠️ Verifica los campos y que las claves coincidan.")
+                st.warning("Completa todos los campos correctamente.")
     st.stop()
 
-# ====================== PANEL PRINCIPAL (POST-LOGIN) ======================
-st.sidebar.success(f"Sesión activa: {st.session_state.nombre_profe}")
+# --- Panel Principal ---
+st.sidebar.success(f"Sesión: {st.session_state.nombre_profe}")
 if st.sidebar.button("Cerrar Sesión"):
     st.session_state.usuario_logueado = None
     st.rerun()
 
-menu = st.sidebar.selectbox("Menú de Navegación", 
-    ["Mis Cursos", "Gestionar Estudiantes", "Escanear Asistencia", "Reportes"])
-
-# Conexión global para las secciones
-conn = get_connection()
+menu = st.sidebar.selectbox("Menú", ["Mis Cursos", "Gestionar Estudiantes", "Escanear Asistencia", "Reportes"])
 
 if menu == "Mis Cursos":
-    st.header("📚 Mis Cursos y Grupos")
-    with st.expander("➕ Configurar Nuevo Grado"):
-        nuevo_g = st.text_input("Grado (ej: 601)")
-        nueva_m = st.text_input("Materia")
-        if st.button("Registrar Curso"):
-            # Usamos la tabla estudiantes con un marcador especial o podrías crear una tabla 'cursos'
-            st.info(f"Curso {nuevo_g} - {nueva_m} configurado para el sistema.")
-
-elif menu == "Gestionar Estudiantes":
-    st.header("👤 Gestión de Estudiantes")
+    st.header("📚 Gestión de Cursos")
     
-    with st.form("form_estudiante"):
-        c1, c2 = st.columns(2)
-        with c1:
-            nom_e = st.text_input("Nombre Completo")
-            doc_e = st.text_input("Documento/ID")
-        with c2:
-            gra_e = st.text_input("Grado")
-        
-        if st.form_submit_button("Guardar Estudiante"):
-            if nom_e and doc_e:
-                try:
-                    cursor = conn.cursor()
-                    cursor.execute(
-                        "INSERT INTO estudiantes (nombre, documento, grado, profesor_id) VALUES (?, ?, ?, ?)",
-                        (nom_e, doc_e, gra_e, st.session_state.usuario_logueado)
-                    )
-                    conn.commit()
-                    st.success(f"✅ Estudiante {nom_e} guardado.")
-                except:
-                    st.error("Error: El documento ya está registrado.")
+    # Formulario para agregar
+    with st.expander("➕ Registrar Nuevo Curso"):
+        with st.form("form_curso"):
+            g = st.text_input("Grado (ej: 601)")
+            m = st.text_input("Materia")
+            if st.form_submit_button("Guardar Curso"):
+                if g and m:
+                    try:
+                        conn = get_connection()
+                        cursor = conn.cursor()
+                        cursor.execute("INSERT INTO cursos (grado, materia, profesor_id) VALUES (?, ?, ?)", 
+                                       (g, m, st.session_state.usuario_logueado))
+                        conn.commit()
+                        st.success("Curso guardado.")
+                        st.rerun()
+                    except:
+                        st.error("Error: Curso ya registrado.")
     
     st.divider()
-    st.subheader("📋 Estudiantes Registrados")
-    df_est = pd.read_sql("SELECT nombre, documento, grado FROM estudiantes WHERE profesor_id=?", 
-                         conn, params=(st.session_state.usuario_logueado,))
-    st.dataframe(df_est, use_container_width=True)
+    
+    # Lista dinámica con opción de eliminar
+    st.subheader("📋 Lista de Cursos")
+    conn = get_connection()
+    df_c = pd.read_sql("SELECT id, grado, materia FROM cursos WHERE profesor_id=?", 
+                       conn, params=(st.session_state.usuario_logueado,))
+    
+    if df_c.empty:
+        st.info("No hay cursos registrados.")
+    else:
+        for idx, row in df_c.iterrows():
+            c1, c2, c3 = st.columns([2, 2, 1])
+            c1.write(f"**Grado:** {row['grado']}")
+            c2.write(f"**Materia:** {row['materia']}")
+            if c3.button("🗑️ Eliminar", key=f"del_{row['id']}"):
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM cursos WHERE id=?", (row['id'],))
+                conn.commit()
+                st.rerun()
+            st.markdown("---")
+
+elif menu == "Gestionar Estudiantes":
+    st.header("👤 Estudiantes")
+    # Lógica similar para estudiantes...
+    st.info("Usa esta sección para vincular alumnos a tus grados registrados.")
 
 elif menu == "Escanear Asistencia":
-    st.header("📷 Control de Asistencia QR")
-    st.write("Usa la cámara para registrar la entrada de los estudiantes.")
-    
-    foto = st.camera_input("Escanear Código QR")
-    if foto:
-        st.info("Buscando código QR en la imagen...")
-        # Aquí se integraría pyzbar en el futuro para procesar 'foto'
+    st.header("📷 Escáner QR")
+    st.camera_input("Capturar QR")
 
 elif menu == "Reportes":
-    st.header("📊 Reportes y Exportación")
-    st.write("Selecciona el grado para generar el reporte de asistencia.")
-    grado_rep = st.selectbox("Seleccionar Grado", ["601", "602", "701"])
-    if st.button("Generar Excel"):
-        st.download_button(label="Descargar Reporte", data="Datos de prueba", file_name="asistencia.csv")
+    st.header("📊 Reportes")
+    st.write("Visualiza la asistencia histórica aquí.")
