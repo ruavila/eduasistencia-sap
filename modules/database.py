@@ -4,13 +4,15 @@ import os
 DB_NAME = "asistencia.db"
 
 def get_connection():
+    """Establece conexión con la base de datos SQLite."""
     return sqlite3.connect(DB_NAME, check_same_thread=False)
 
 def init_db():
+    """Crea las tablas necesarias si no existen."""
     conn = get_connection()
     cursor = conn.cursor()
 
-    # Tabla de Usuarios
+    # 1. Tabla de Usuarios (Docentes)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS usuarios (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -21,7 +23,7 @@ def init_db():
         )
     ''')
 
-    # NUEVA: Tabla de Cursos
+    # 2. Tabla de Cursos (Nueva funcionalidad)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS cursos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -32,13 +34,25 @@ def init_db():
         )
     ''')
 
-    # Tabla de Estudiantes
+    # 3. Tabla de Estudiantes
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS estudiantes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             documento TEXT UNIQUE NOT NULL,
             nombre TEXT NOT NULL,
             grado TEXT NOT NULL,
+            profesor_id TEXT NOT NULL
+        )
+    ''')
+
+    # 4. Tabla de Asistencia
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS asistencia (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            estudiante_id TEXT NOT NULL,
+            fecha TEXT NOT NULL,
+            hora TEXT NOT NULL,
+            materia TEXT NOT NULL,
             profesor_id TEXT NOT NULL
         )
     ''')
