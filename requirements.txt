@@ -5,3 +5,4 @@ qrcode
 pyzbar
 opencv-python-headless
 reportlab
+openpyxl
