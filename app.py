@@ -8,6 +8,7 @@ from PIL import Image
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import cm
+from streamlit_qrcode_scanner import qrcode_scanner # Librería para la cámara
 
 # Módulos locales
 from modules.database import init_db, get_connection, hash_password
@@ -89,10 +90,10 @@ elif menu == "👤 Gestionar Estudiantes":
         if file:
             try:
                 df = pd.read_excel(file, engine='openpyxl')
-                df.columns = [str(c).strip().lower() for c in df.columns] # Normalización
+                df.columns = [str(c).strip().lower() for c in df.columns]
                 st.dataframe(df.head(5))
                 if st.button("Generar PDF con QRs"):
-                    if 'estudiante_id' in df.columns and 'nombre' in df.columns: # Clave corregida
+                    if 'estudiante_id' in df.columns and 'nombre' in df.columns:
                         pdf_io = io.BytesIO()
                         canv = canvas.Canvas(pdf_io, pagesize=letter)
                         w, h = letter
@@ -100,7 +101,7 @@ elif menu == "👤 Gestionar Estudiantes":
                         for _, row in df.iterrows():
                             eid, enom = str(row['estudiante_id']).strip(), str(row['nombre']).strip().upper()
                             conn.execute("INSERT OR REPLACE INTO estudiantes (documento, nombre, grado, materia, profe_id) VALUES (?,?,?,?,?)", (eid, enom, g_s, m_s, st.session_state.user))
-                            # Lógica QR corregida
+                            # Lógica QR corregida para evitar error de BytesIO
                             qr = qrcode.QRCode(version=1, box_size=10, border=1)
                             qr.add_data(eid); qr.make(fit=True)
                             img_qr = qr.make_image(fill_color="black", back_color="white").convert('RGB')
@@ -115,36 +116,53 @@ elif menu == "👤 Gestionar Estudiantes":
                     else: st.error("❌ Error en columnas.")
             except Exception as e: st.error(f"Error: {e}")
 
-# SECCIÓN: ESCANEAR ASISTENCIA (NUEVO)
+# SECCIÓN: ESCANEAR ASISTENCIA (AHORA CON CÁMARA)
 elif menu == "📷 Escanear Asistencia":
-    st.header("📷 Control de Asistencia QR")
+    st.header("📷 Control de Asistencia por Cámara")
     df_c = pd.read_sql("SELECT grado, materia FROM cursos WHERE profe_id=?", conn, params=(st.session_state.user,))
-    if df_c.empty: st.warning("⚠️ Debe crear un curso primero.")
+    
+    if df_c.empty:
+        st.warning("⚠️ Debe crear un curso primero.")
     else:
         opciones_c = [f"{r['grado']} | {r['materia']}" for _, r in df_c.iterrows()]
-        curso_asistencia = st.selectbox("Curso actual:", opciones_c)
+        curso_asistencia = st.selectbox("Seleccione el curso actual:", opciones_c)
         g_asist, m_asist = curso_asistencia.split(" | ")
-        id_escaneado = st.text_input("👉 Escanee el QR o ingrese ID:", key="input_qr")
+        
+        st.write("### 🎥 Escáner Activo")
+        # El componente de cámara se activa aquí
+        id_escaneado = qrcode_scanner(key="lector_camara")
+
         if id_escaneado:
+            # Procesamiento del dato obtenido por cámara
             res_e = conn.execute("SELECT nombre FROM estudiantes WHERE documento=? AND grado=? AND profe_id=?", (id_escaneado.strip(), g_asist, st.session_state.user)).fetchone()
+            
             if res_e:
                 nom_e, f_hoy = res_e[0], datetime.now().strftime("%Y-%m-%d")
+                # Verificar duplicados del día
                 ya = conn.execute("SELECT id FROM asistencia WHERE estudiante_id=? AND fecha=? AND grado=?", (id_escaneado.strip(), f_hoy, g_asist)).fetchone()
-                if ya: st.warning(f"⚠️ {nom_e} ya registró asistencia hoy.")
+                
+                if ya:
+                    st.warning(f"⚠️ El estudiante **{nom_e}** ya registró asistencia hoy.")
                 else:
                     h_act = datetime.now().strftime("%H:%M:%S")
                     conn.execute("INSERT INTO asistencia (estudiante_id, fecha, hora, grado, materia, profe_id) VALUES (?,?,?,?,?,?)", (id_escaneado.strip(), f_hoy, h_act, g_asist, m_asist, st.session_state.user))
-                    conn.commit(); st.balloons(); st.success(f"✅ Registrado: {nom_e} ({h_act})")
-            else: st.error("❌ Estudiante no encontrado en este curso.")
-        st.divider(); st.subheader("Últimos registros de hoy")
+                    conn.commit()
+                    st.success(f"✅ **Asistencia Exitosa:** {nom_e} a las {h_act}")
+                    st.balloons()
+            else:
+                st.error(f"❌ El código '{id_escaneado}' no pertenece a este curso.")
+
+        st.divider()
+        st.subheader("Últimos registros de hoy")
         f_act = datetime.now().strftime("%Y-%m-%d")
         df_hoy = pd.read_sql("SELECT a.hora, e.nombre FROM asistencia a JOIN estudiantes e ON a.estudiante_id = e.documento WHERE a.fecha = ? AND a.grado = ? AND a.profe_id = ? ORDER BY a.hora DESC LIMIT 5", conn, params=(f_act, g_asist, st.session_state.user))
-        if not df_hoy.empty: st.table(df_hoy)
+        if not df_hoy.empty:
+            st.table(df_hoy)
 
 # SECCIÓN: REPORTES
 elif menu == "📊 Reportes":
     st.header("Reportes de Asistencia")
-    st.info("Próximamente: Descarga de consolidados en Excel.")
+    st.info("Visualización de registros guardados.")
 
 # SECCIÓN: REINICIO
 elif menu == "⚙️ Reinicio":
