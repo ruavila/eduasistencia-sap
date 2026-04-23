@@ -17,7 +17,7 @@ from modules.config import APP_NAME, COLEGIO, ESCUDO_PATH, CREADOR
 st.set_page_config(page_title=APP_NAME, layout="wide")
 init_db()
 
-# --- CABECERA (RESTAURADA CON ESCUDO) ---
+# --- CABECERA ---
 col_esc, col_tit = st.columns([1, 5])
 with col_esc:
     if os.path.exists(ESCUDO_PATH):
@@ -92,7 +92,7 @@ if menu == "📚 Mis Cursos":
             conn.commit()
             st.rerun()
 
-# --- SECCIÓN 2: GESTIONAR ESTUDIANTES (CORREGIDA) ---
+# --- SECCIÓN 2: GESTIONAR ESTUDIANTES ---
 elif menu == "👤 Gestionar Estudiantes":
     st.header("Carga Masiva de Alumnos")
     df_c = pd.read_sql("SELECT grado, materia FROM cursos WHERE profe_id=?", conn, params=(st.session_state.user,))
@@ -106,17 +106,14 @@ elif menu == "👤 Gestionar Estudiantes":
         file = st.file_uploader("Subir Excel (estudiante_id, nombre, whatsapp)", type=["xlsx"])
         if file:
             try:
-                # Lectura con motor openpyxl para evitar errores de importación
+                # Lectura forzando el motor openpyxl
                 df_al = pd.read_excel(file, engine='openpyxl')
-                
-                # Normalización de nombres de columnas (quita espacios y pasa a minúsculas)
                 df_al.columns = [str(c).strip().lower() for c in df_al.columns]
                 
-                st.write("✅ Archivo cargado con éxito. Vista previa (primeros 5):")
+                st.write("✅ Archivo cargado. Vista previa (5 primeros):")
                 st.dataframe(df_al.head(5))
 
                 if st.button("Generar PDF con TODOS los Códigos QR (4x4 cm)"):
-                    # Verificación de columnas requeridas
                     if 'estudiante_id' in df_al.columns and 'nombre' in df_al.columns:
                         pdf_buf = io.BytesIO()
                         canv = canvas.Canvas(pdf_buf, pagesize=letter)
@@ -126,22 +123,21 @@ elif menu == "👤 Gestionar Estudiantes":
                         progreso = st.progress(0)
                         total_est = len(df_al)
                         
-                        # Procesamiento de TODOS los estudiantes
                         for idx, row in df_al.iterrows():
                             eid = str(row['estudiante_id']).strip()
                             enom = str(row['nombre']).strip().upper()
                             ews = str(row.get('whatsapp', ''))
 
-                            # Guardar/Actualizar en Base de Datos Local
                             conn.execute("INSERT OR REPLACE INTO estudiantes (documento, nombre, whatsapp, grado, materia, profe_id) VALUES (?,?,?,?,?,?)",
                                          (eid, enom, ews, grado_sel, materia_sel, st.session_state.user))
                             
-                            # Generación del código QR
+                            # CORRECCIÓN TÉCNICA DEL QR
                             qr_img = qrcode.make(eid)
-                            img_b = io.BytesIO(); qr_img.save(img_b, format="PNG"); img_b.seek(0)
+                            img_b = io.BytesIO()
+                            qr_img.save(img_b, format="PNG") # Se especifica el formato aquí
+                            img_b.seek(0)
                             canv.drawInlineImage(img_b, x_in, y_in, width=4*cm, height=4*cm)
                             
-                            # Etiqueta: Iniciales Apellido + Primer Nombre
                             nombres = enom.split()
                             nombre_principal = nombres[0]
                             iniciales = "".join([n[0] for n in nombres[1:]]) if len(nombres) > 1 else ""
@@ -152,7 +148,6 @@ elif menu == "👤 Gestionar Estudiantes":
                             canv.setFont("Helvetica", 6)
                             canv.drawCentredString(x_in + 2*cm, y_in - 0.8*cm, materia_sel)
                             
-                            # Lógica de cuadrícula para papel carta
                             x_in += 5*cm
                             if x_in > w - 5*cm:
                                 x_in = 1.5*cm
@@ -168,25 +163,22 @@ elif menu == "👤 Gestionar Estudiantes":
                         st.success(f"✅ Se han procesado {total_est} estudiantes correctamente.")
                         st.download_button("📥 Descargar PDF de QRs", pdf_buf.getvalue(), f"QR_{grado_sel}.pdf", "application/pdf")
                     else:
-                        st.error(f"❌ El Excel no tiene las columnas correctas. Se encontraron: {list(df_al.columns)}")
+                        st.error("❌ El Excel debe tener las columnas: 'estudiante_id' y 'nombre'.")
             except Exception as e:
-                st.error(f"Error técnico al procesar el archivo: {e}")
+                st.error(f"Error técnico: {e}")
 
-# --- SECCIÓN 3: REINICIO ---
+# --- SECCIÓN REINICIO ---
 elif menu == "⚙️ Reinicio":
     st.header("Limpieza del Sistema")
-    st.error("⚠️ Atención: Esta acción borrará todos tus cursos, alumnos y asistencias.")
-    confirmar = st.checkbox("Confirmo que deseo eliminar toda mi información registrada.")
-    if confirmar:
-        if st.button("REINICIAR TODO"):
-            conn.execute("DELETE FROM cursos WHERE profe_id=?", (st.session_state.user,))
-            conn.execute("DELETE FROM estudiantes WHERE profe_id=?", (st.session_state.user,))
-            conn.execute("DELETE FROM asistencia WHERE profe_id=?", (st.session_state.user,))
-            conn.commit()
-            st.success("Sistema reiniciado con éxito.")
-            st.rerun()
+    confirmar = st.checkbox("Confirmo que deseo eliminar toda mi información.")
+    if confirmar and st.button("REINICIAR TODO"):
+        conn.execute("DELETE FROM cursos WHERE profe_id=?", (st.session_state.user,))
+        conn.execute("DELETE FROM estudiantes WHERE profe_id=?", (st.session_state.user,))
+        conn.execute("DELETE FROM asistencia WHERE profe_id=?", (st.session_state.user,))
+        conn.commit()
+        st.success("Sistema limpio.")
+        st.rerun()
 
-# Cerrar sesión
 if st.sidebar.button("Cerrar Sesión"):
     st.session_state.logueado = False
     st.rerun()
