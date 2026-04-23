@@ -8,3 +8,4 @@ reportlab
 openpyxl
 xlsxwriter
 openpyxl
+streamlit-qrcode-scanner
