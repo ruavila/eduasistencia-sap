@@ -11,18 +11,18 @@ def hash_password(password):
     return hashlib.sha256(str.encode(password)).hexdigest()
 
 def init_db():
-    """Inicializa la base de datos y crea las tablas necesarias si no existen."""
+    """Inicializa la base de datos y crea las tablas necesarias."""
     conn = get_connection()
     cursor = conn.cursor()
     
-    # 1. TABLA DE USUARIOS (DOCENTES)
+    # Usuarios (Docentes)
     cursor.execute('''CREATE TABLE IF NOT EXISTS usuarios (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         nombre TEXT NOT NULL,
                         usuario TEXT UNIQUE NOT NULL,
                         password TEXT NOT NULL)''')
     
-    # 2. TABLA DE CURSOS
+    # Cursos
     cursor.execute('''CREATE TABLE IF NOT EXISTS cursos (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         grado TEXT NOT NULL,
@@ -30,8 +30,7 @@ def init_db():
                         profe_id TEXT NOT NULL,
                         FOREIGN KEY (profe_id) REFERENCES usuarios(usuario))''')
     
-    # 3. TABLA DE ESTUDIANTES (Maneja el documento como llave para el QR)
-    # Se usa INSERT OR REPLACE para evitar conflictos con cargas masivas
+    # Estudiantes (Incluye WhatsApp)
     cursor.execute('''CREATE TABLE IF NOT EXISTS estudiantes (
                         documento TEXT PRIMARY KEY,
                         nombre TEXT NOT NULL,
@@ -41,8 +40,7 @@ def init_db():
                         profe_id TEXT NOT NULL,
                         FOREIGN KEY (profe_id) REFERENCES usuarios(usuario))''')
     
-    # 4. TABLA DE ASISTENCIA (NUEVA: Para el módulo de escaneo)
-    # Registra cada entrada individual con fecha y hora
+    # Asistencia
     cursor.execute('''CREATE TABLE IF NOT EXISTS asistencia (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         estudiante_id TEXT NOT NULL,
