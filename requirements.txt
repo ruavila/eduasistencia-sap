@@ -7,3 +7,4 @@ opencv-python-headless
 reportlab
 openpyxl
 xlsxwriter
+openpyxl
