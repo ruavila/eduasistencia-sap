@@ -1,19 +1,20 @@
 import sqlite3
 import hashlib
+import os
 
 def get_connection():
-    # Conexión a la base de datos SQLite
+    # Creamos la carpeta 'data' si no existe para evitar errores de ruta
+    if not os.path.exists("data"):
+        os.makedirs("data")
     return sqlite3.connect("data/asistencia.db", check_same_thread=False)
 
 def hash_password(password):
-    # Encriptación de contraseñas para seguridad
     return hashlib.sha256(password.encode()).hexdigest()
 
 def init_db():
     conn = get_connection()
     cursor = conn.cursor()
     
-    # 1. Tabla de Usuarios (Docentes)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
             usuario TEXT PRIMARY KEY,
@@ -22,7 +23,6 @@ def init_db():
         )
     """)
     
-    # 2. Tabla de Cursos
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS cursos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -32,7 +32,7 @@ def init_db():
         )
     """)
     
-    # 3. Tabla de Estudiantes
+    # Se eliminó cualquier referencia a 'id' para evitar el error 'no such column'
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS estudiantes (
             documento TEXT PRIMARY KEY,
@@ -44,7 +44,6 @@ def init_db():
         )
     """)
     
-    # 4. Tabla de Asistencia (Con columna tema incluida)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS asistencia (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
