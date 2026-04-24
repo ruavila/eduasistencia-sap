@@ -18,7 +18,7 @@ st.set_page_config(page_title=APP_NAME, layout="wide", initial_sidebar_state="co
 init_db()
 conn = get_connection()
 
-# Sincronización de base de datos
+# Asegurar columnas necesarias
 try:
     conn.execute("ALTER TABLE asistencia ADD COLUMN tema TEXT")
     conn.commit()
@@ -80,7 +80,8 @@ elif menu == "👤 Estudiantes":
             pdf_io = io.BytesIO(); canv = canvas.Canvas(pdf_io, pagesize=letter)
             w, h = letter; x, y = 1.5*cm, h - 5.5*cm
             for _, row in df.iterrows():
-                eid = str(row['estudiante_id']).strip()
+                # Limpieza de ID al guardar: solo números
+                eid = "".join(filter(str.isdigit, str(row['estudiante_id'])))
                 enom = str(row['nombre']).strip().upper()
                 ews = str(row.get('whatsapp', '')).strip().replace(".0", "")
                 conn.execute("INSERT OR REPLACE INTO estudiantes (documento, nombre, whatsapp, grado, materia, profe_id) VALUES (?,?,?,?,?,?)", (eid, enom, ews, gs, ms, st.session_state.user))
@@ -104,24 +105,32 @@ elif menu == "📷 Asistencia QR":
         tema = st.text_input("Tema de la clase:", key="tema_input")
         
         if not tema:
-            st.warning("⚠️ Escriba el tema de la clase para activar la cámara.")
+            st.warning("⚠️ Escriba el tema para activar la cámara.")
         else:
-            # LLAVE DINÁMICA: Esto asegura que la cámara se habilite al escribir el tema
-            cam_key = f"scanner_{ga.replace(' ', '')}_{len(tema)}"
+            # Llave dinámica para asegurar refresco de cámara
+            cam_key = f"cam_{ga.replace(' ', '')}_{len(tema)}"
             codigo = qrcode_scanner(key=cam_key)
             
             if codigo:
-                id_q = "".join(filter(str.isalnum, str(codigo)))
-                res = conn.execute("SELECT nombre FROM estudiantes WHERE documento=? AND grado=? AND profe_id=?", (id_q, ga, st.session_state.user)).fetchone()
+                # Limpieza de código leído: solo números/letras
+                id_leido = "".join(filter(str.isalnum, str(codigo)))
+                
+                # Búsqueda flexible usando LIKE para evitar errores de espacios/ceros a la izquierda
+                query = "SELECT documento, nombre FROM estudiantes WHERE documento LIKE ? AND grado=? AND profe_id=?"
+                res = conn.execute(query, (f"%{id_leido}%", ga, st.session_state.user)).fetchone()
+                
                 if res:
+                    doc_db, nom_est = res
                     f_h = datetime.now().strftime("%Y-%m-%d")
-                    dupe = conn.execute("SELECT id FROM asistencia WHERE estudiante_id=? AND fecha=? AND tema=? AND grado=?", (id_q, f_h, tema, ga)).fetchone()
+                    # Verificar duplicado con el documento real de la base de datos
+                    dupe = conn.execute("SELECT id FROM asistencia WHERE estudiante_id=? AND fecha=? AND tema=? AND grado=?", (doc_db, f_h, tema, ga)).fetchone()
                     if not dupe:
                         h_a = datetime.now().strftime("%H:%M:%S")
-                        conn.execute("INSERT INTO asistencia (estudiante_id, fecha, hora, grado, materia, tema, profe_id) VALUES (?,?,?,?,?,?,?)", (id_q, f_h, h_a, ga, ma, tema, st.session_state.user))
-                        conn.commit(); st.success(f"✅ {res[0]} registrado")
-                    else: st.info(f"El estudiante {res[0]} ya fue registrado hoy para este tema.")
-                else: st.error(f"ID {id_q} no registrado en este grado.")
+                        conn.execute("INSERT INTO asistencia (estudiante_id, fecha, hora, grado, materia, tema, profe_id) VALUES (?,?,?,?,?,?,?)", (doc_db, f_h, h_a, ga, ma, tema, st.session_state.user))
+                        conn.commit(); st.success(f"✅ {nom_est} registrado")
+                    else: st.info(f"El estudiante {nom_est} ya fue registrado para este tema.")
+                else: 
+                    st.error(f"❌ Estudiante con ID '{id_leido}' no pertenece a este curso o grado.")
 
         st.divider()
         if st.button("🚀 Finalizar y Notificar Ausentes", type="primary", use_container_width=True):
