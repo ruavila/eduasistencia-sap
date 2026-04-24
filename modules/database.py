@@ -2,18 +2,18 @@ import sqlite3
 import hashlib
 
 def get_connection():
-    # Establece conexión con la base de datos local
+    # Conexión a la base de datos SQLite
     return sqlite3.connect("data/asistencia.db", check_same_thread=False)
 
 def hash_password(password):
-    # Encriptación simple para seguridad de acceso
+    # Encriptación de contraseñas para seguridad
     return hashlib.sha256(password.encode()).hexdigest()
 
 def init_db():
     conn = get_connection()
     cursor = conn.cursor()
     
-    # Tabla de Usuarios (Docentes)
+    # 1. Tabla de Usuarios (Docentes)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
             usuario TEXT PRIMARY KEY,
@@ -22,7 +22,7 @@ def init_db():
         )
     """)
     
-    # Tabla de Cursos
+    # 2. Tabla de Cursos
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS cursos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -32,7 +32,7 @@ def init_db():
         )
     """)
     
-    # Tabla de Estudiantes (Asegurando documento como texto y sin error de ID)
+    # 3. Tabla de Estudiantes
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS estudiantes (
             documento TEXT PRIMARY KEY,
@@ -44,7 +44,7 @@ def init_db():
         )
     """)
     
-    # Tabla de Asistencia (Incluyendo la columna TEMA desde el inicio)
+    # 4. Tabla de Asistencia (Con columna tema incluida)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS asistencia (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -57,12 +57,6 @@ def init_db():
             profe_id TEXT
         )
     """)
-    
-    # Usuario por defecto si la tabla está vacía
-    cursor.execute("SELECT * FROM usuarios")
-    if not cursor.fetchone():
-        cursor.execute("INSERT INTO usuarios VALUES (?, ?, ?)", 
-                       ("admin", hash_password("1234"), "Profesor Administrador"))
     
     conn.commit()
     conn.close()
