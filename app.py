@@ -18,16 +18,14 @@ st.set_page_config(page_title=APP_NAME, layout="wide", initial_sidebar_state="co
 init_db()
 conn = get_connection()
 
-# CORRECCIÓN DE BASE DE DATOS (Evita el DatabaseError)
+# Sincronización de base de datos
 try:
-    # Aseguramos que la tabla asistencia tenga 'tema'
     conn.execute("ALTER TABLE asistencia ADD COLUMN tema TEXT")
-    # Aseguramos que la tabla estudiantes tenga un ID autoincremental para el orden
     conn.commit()
 except:
     pass
 
-# CABECERA VISUAL
+# CABECERA
 col_esc, col_txt = st.columns([1, 4])
 with col_esc:
     if os.path.exists(ESCUDO_PATH):
@@ -42,7 +40,6 @@ if 'logueado' not in st.session_state:
     st.session_state.logueado = False
 
 if not st.session_state.logueado:
-    st.subheader("🔐 Acceso")
     u = st.text_input("Usuario")
     p = st.text_input("Contraseña", type="password")
     if st.button("Ingresar", use_container_width=True, type="primary"):
@@ -50,7 +47,6 @@ if not st.session_state.logueado:
         if res:
             st.session_state.logueado, st.session_state.user, st.session_state.profe_nom = True, u, res[0]
             st.rerun()
-        else: st.error("Error de credenciales")
     st.stop()
 
 # --- NAVEGACIÓN ---
@@ -58,11 +54,11 @@ menu = st.sidebar.radio("Navegación", ["📚 Mis Cursos", "👤 Estudiantes", "
 
 if menu == "📚 Mis Cursos":
     st.subheader("Gestión de Cursos")
-    with st.form("curso_nuevo"):
-        g, m = st.text_input("Grado"), st.text_input("Materia")
-        if st.form_submit_button("Añadir"):
-            conn.execute("INSERT INTO cursos (grado, materia, profe_id) VALUES (?,?,?)", (g, m, st.session_state.user))
-            conn.commit(); st.rerun()
+    g = st.text_input("Grado")
+    m = st.text_input("Materia")
+    if st.button("Añadir"):
+        conn.execute("INSERT INTO cursos (grado, materia, profe_id) VALUES (?,?,?)", (g, m, st.session_state.user))
+        conn.commit(); st.rerun()
     
     cursos = pd.read_sql("SELECT id, grado, materia FROM cursos WHERE profe_id=?", conn, params=(st.session_state.user,))
     for _, r in cursos.iterrows():
@@ -105,28 +101,31 @@ elif menu == "📷 Asistencia QR":
         op_a = [f"{r['grado']} | {r['materia']}" for _, r in df_c.iterrows()]
         sel_a = st.selectbox("Curso actual:", op_a)
         ga, ma = sel_a.split(" | ")
-        tema = st.text_input("Tema de la clase:", key="t_clase")
+        tema = st.text_input("Tema de la clase:", key="tema_input")
         
-        if tema:
-            codigo = qrcode_scanner(key="scanner_v13")
+        if not tema:
+            st.warning("⚠️ Escriba el tema de la clase para activar la cámara.")
+        else:
+            # LLAVE DINÁMICA: Esto asegura que la cámara se habilite al escribir el tema
+            cam_key = f"scanner_{ga.replace(' ', '')}_{len(tema)}"
+            codigo = qrcode_scanner(key=cam_key)
+            
             if codigo:
                 id_q = "".join(filter(str.isalnum, str(codigo)))
-                # Búsqueda limpia para evitar el error de "no registrado" en móviles
                 res = conn.execute("SELECT nombre FROM estudiantes WHERE documento=? AND grado=? AND profe_id=?", (id_q, ga, st.session_state.user)).fetchone()
                 if res:
                     f_h = datetime.now().strftime("%Y-%m-%d")
-                    # Evitar duplicados por tema
                     dupe = conn.execute("SELECT id FROM asistencia WHERE estudiante_id=? AND fecha=? AND tema=? AND grado=?", (id_q, f_h, tema, ga)).fetchone()
                     if not dupe:
                         h_a = datetime.now().strftime("%H:%M:%S")
                         conn.execute("INSERT INTO asistencia (estudiante_id, fecha, hora, grado, materia, tema, profe_id) VALUES (?,?,?,?,?,?,?)", (id_q, f_h, h_a, ga, ma, tema, st.session_state.user))
                         conn.commit(); st.success(f"✅ {res[0]} registrado")
-                else: st.error(f"Estudiante {id_q} no pertenece a este grado.")
+                    else: st.info(f"El estudiante {res[0]} ya fue registrado hoy para este tema.")
+                else: st.error(f"ID {id_q} no registrado en este grado.")
 
         st.divider()
         if st.button("🚀 Finalizar y Notificar Ausentes", type="primary", use_container_width=True):
             f_hoy = datetime.now().strftime("%Y-%m-%d")
-            # Respetamos el orden de la base de datos (id)
             todos = pd.read_sql("SELECT nombre, whatsapp, documento FROM estudiantes WHERE grado=? AND materia=? AND profe_id=? ORDER BY id ASC", conn, params=(ga, ma, st.session_state.user))
             pres = pd.read_sql("SELECT DISTINCT estudiante_id FROM asistencia WHERE fecha=? AND grado=? AND profe_id=?", conn, params=(f_hoy, ga, st.session_state.user))
             aus = todos[~todos['documento'].astype(str).isin(pres['estudiante_id'].astype(str))]
@@ -144,29 +143,18 @@ elif menu == "📊 Reportes":
         op_r = [f"{r['grado']} | {r['materia']}" for _, r in df_c.iterrows()]
         sel_r = st.selectbox("Elegir Reporte:", op_r)
         gr, mr = sel_r.split(" | ")
-        
-        # Reporte ordenado y con tema
         df_rep = pd.read_sql("""SELECT e.documento as Codigo, e.nombre as Nombre, a.tema as Tema, a.fecha as Fecha, a.hora as Hora 
                                 FROM asistencia a JOIN estudiantes e ON a.estudiante_id = e.documento 
                                 WHERE a.grado=? AND a.materia=? AND a.profe_id=? 
                                 ORDER BY a.fecha ASC, e.id ASC""", conn, params=(gr, mr, st.session_state.user))
-        
         if not df_rep.empty:
             st.dataframe(df_rep, use_container_width=True)
             t_clases = df_rep['Fecha'].nunique()
             resumen = df_rep.groupby(['Codigo', 'Nombre']).size().reset_index(name='Asistencias')
             resumen['Inasistencias'] = t_clases - resumen['Asistencias']
-            
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                 df_rep.to_excel(writer, sheet_name='Detalle', startrow=7, index=False)
-                wb, ws = writer.book, writer.sheets['Detalle']
-                fmt = wb.add_format({'bold': True, 'size': 14})
-                ws.write('A1', COLEGIO.upper(), fmt)
-                ws.write('A2', f"DOCENTE: {st.session_state.profe_nom}")
-                ws.write('A3', f"MATERIA: {mr} | GRADO: {gr}")
-                ws.write('A4', f"TOTAL CLASES: {t_clases}")
-                ws.set_column('A:E', 25)
                 resumen.to_excel(writer, sheet_name='Estadisticas', index=False)
             st.download_button("📥 Descargar Excel", output.getvalue(), f"Reporte_{gr}.xlsx", use_container_width=True)
 
