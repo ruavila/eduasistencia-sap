@@ -3,7 +3,7 @@ import hashlib
 import os
 
 def get_connection():
-    """Establece la conexión con la base de datos local en la carpeta data."""
+    """Establece la conexión con la base de datos local."""
     if not os.path.exists("data"):
         os.makedirs("data")
     return sqlite3.connect("data/asistencia.db", check_same_thread=False)
