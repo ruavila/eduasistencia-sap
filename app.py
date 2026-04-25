@@ -19,20 +19,19 @@ st.set_page_config(page_title=APP_NAME, layout="wide", initial_sidebar_state="co
 init_db()
 conn = get_connection()
 
-# Variables de estado globales
 if 'logueado' not in st.session_state: 
     st.session_state.logueado = False
 if 'captura_finalizada' not in st.session_state: 
     st.session_state.captura_finalizada = False
 
-# --- LOGUEO Y AUTENTICACIÓN ---
+# --- AUTENTICACIÓN ---
 if not st.session_state.logueado:
     col_esc, col_txt = st.columns([1, 4])
     with col_esc:
         if os.path.exists(ESCUDO_PATH): st.image(ESCUDO_PATH, width=100)
     with col_txt:
         st.title(COLEGIO)
-        st.subheader(f"Sistema {APP_NAME}")
+        st.subheader(f"Acceso Docente - {APP_NAME}")
     
     t1, t2 = st.tabs(["🔐 Ingresar", "📝 Registrarse"])
     with t1:
@@ -43,17 +42,17 @@ if not st.session_state.logueado:
             if res:
                 st.session_state.logueado, st.session_state.user, st.session_state.profe_nom = True, u_l, res[0]
                 st.rerun()
-            else: st.error("Usuario o clave incorrectos.")
+            else: st.error("Credenciales incorrectas.")
     with t2:
-        nu, nn, np = st.text_input("Nuevo ID"), st.text_input("Nombre Docente"), st.text_input("Nueva Clave", type="password")
+        nu, nn, np = st.text_input("Nuevo ID"), st.text_input("Nombre Docente"), st.text_input("Clave", type="password")
         if st.button("Crear Cuenta"):
             try:
                 conn.execute("INSERT INTO usuarios VALUES (?,?,?)", (nu, hash_password(np), nn))
-                conn.commit(); st.success("Cuenta creada exitosamente.")
+                conn.commit(); st.success("Registro exitoso.")
             except: st.error("El usuario ya existe.")
     st.stop()
 
-# --- CABECERA DE LA APP ---
+# --- CABECERA ---
 col_esc, col_txt = st.columns([1, 4])
 with col_esc:
     if os.path.exists(ESCUDO_PATH): st.image(ESCUDO_PATH, width=100)
@@ -62,17 +61,15 @@ with col_txt:
     st.markdown(f"<p style='margin:0; color:#4F8BF9;'><b>{APP_NAME}</b> | Docente: {st.session_state.profe_nom}</p>", unsafe_allow_html=True)
 st.divider()
 
-# --- MENÚ LATERAL ---
 menu = st.sidebar.radio("Navegación", ["📚 Cursos", "👤 Estudiantes", "📷 Scanner QR", "📊 Reportes", "⚙️ Reinicio"])
 
 # 1. CURSOS
 if menu == "📚 Cursos":
-    st.subheader("Mis Cursos y Grupos")
-    g, m = st.text_input("Grado (Ej: 601)"), st.text_input("Asignatura")
+    st.subheader("Gestión de Cursos")
+    g, m = st.text_input("Grado"), st.text_input("Materia")
     if st.button("Añadir Curso"):
         conn.execute("INSERT INTO cursos (grado, materia, profe_id) VALUES (?,?,?)", (g, m, st.session_state.user))
         conn.commit(); st.rerun()
-    
     df_c = pd.read_sql("SELECT id, grado, materia FROM cursos WHERE profe_id=?", conn, params=(st.session_state.user,))
     for _, r in df_c.iterrows():
         c1, c2 = st.columns([5, 1])
@@ -82,13 +79,13 @@ if menu == "📚 Cursos":
 
 # 2. ESTUDIANTES
 elif menu == "👤 Estudiantes":
-    st.subheader("Gestión de Estudiantes")
+    st.subheader("Listado de Estudiantes")
     df_c = pd.read_sql("SELECT grado, materia FROM cursos WHERE profe_id=?", conn, params=(st.session_state.user,))
     if not df_c.empty:
-        sel = st.selectbox("Curso destino:", [f"{r['grado']} | {r['materia']}" for _, r in df_c.iterrows()])
+        sel = st.selectbox("Curso:", [f"{r['grado']} | {r['materia']}" for _, r in df_c.iterrows()])
         gs, ms = sel.split(" | ")
-        f = st.file_uploader("Subir listado Excel", type=["xlsx"])
-        if f and st.button("Importar y Generar QRs"):
+        f = st.file_uploader("Subir Excel", type=["xlsx"])
+        if f and st.button("Procesar"):
             df = pd.read_excel(f); df.columns = [str(c).strip().lower() for c in df.columns]
             pdf = io.BytesIO(); canv = canvas.Canvas(pdf, pagesize=landscape(legal))
             x, y, col = 1.5*cm, landscape(legal)[1]-5*cm, 0
@@ -106,22 +103,23 @@ elif menu == "👤 Estudiantes":
             conn.commit(); canv.save()
             st.download_button("📥 Descargar Carnets QR", pdf.getvalue(), f"QR_{gs}.pdf", use_container_width=True)
 
-# 3. SCANNER QR (FLUJO DE CAPTURA Y AUSENCIAS)
+# 3. SCANNER QR Y GESTIÓN DE AUSENTES (SECCIÓN SOLICITADA)
 elif menu == "📷 Scanner QR":
-    st.subheader("Control de Asistencia en Tiempo Real")
+    st.subheader("Control de Asistencia")
     df_c = pd.read_sql("SELECT grado, materia FROM cursos WHERE profe_id=?", conn, params=(st.session_state.user,))
+    
     if not df_c.empty:
-        sel_as = st.selectbox("Clase actual:", [f"{r['grado']} | {r['materia']}" for _, r in df_c.iterrows()])
+        sel_as = st.selectbox("Seleccione el Curso:", [f"{r['grado']} | {r['materia']}" for _, r in df_c.iterrows()])
         ga, ma = sel_as.split(" | ")
-        tema = st.text_input("Tema de la clase:")
+        tema = st.text_input("Tema de la clase (obligatorio para iniciar):")
         
         if tema:
             if not st.session_state.captura_finalizada:
-                if st.button("⏹️ Finalizar Captura y Ver Ausentes", type="primary", use_container_width=True):
-                    st.session_state.captura_finalizada = True; st.rerun()
-
-                st.info("Scanner activo... Pase el carnet QR frente a la cámara")
-                cod = qrcode_scanner(key=f"sc_{ga}")
+                # --- MODO 1: ESCANEO ACTIVO ---
+                st.markdown("### 📷 Capturando Asistencia...")
+                st.info("El sistema está registrando los códigos QR. Al terminar, presione el botón de abajo.")
+                
+                cod = qrcode_scanner(key=f"scanner_{ga}")
                 if cod:
                     id_cl = "".join(filter(str.isalnum, str(cod)))
                     res = conn.execute("SELECT documento, nombre FROM estudiantes WHERE documento LIKE ? AND grado=? AND profe_id=?", (f"%{id_cl}%", ga, st.session_state.user)).fetchone()
@@ -129,12 +127,21 @@ elif menu == "📷 Scanner QR":
                         doc, nom = res; hoy = datetime.now().strftime("%Y-%m-%d")
                         if not conn.execute("SELECT id FROM asistencia WHERE estudiante_id=? AND fecha=? AND tema=?", (doc, hoy, tema)).fetchone():
                             conn.execute("INSERT INTO asistencia (estudiante_id, fecha, hora, grado, materia, tema, profe_id) VALUES (?,?,?,?,?,?,?)", (doc, hoy, datetime.now().strftime("%H:%M:%S"), ga, ma, tema, st.session_state.user))
-                            conn.commit(); st.success(f"✅ Registrado: {nom}")
+                            conn.commit(); st.success(f"Estudiante Registrado: {nom}")
+
+                if st.button("⏹️ Finalizar Captura y Ver Ausentes", type="primary", use_container_width=True):
+                    st.session_state.captura_finalizada = True
+                    st.rerun()
+            
             else:
-                st.success("Scanner cerrado. Revisando ausencias...")
-                if st.button("🔄 Volver a capturar QRs"):
-                    st.session_state.captura_finalizada = False; st.rerun()
+                # --- MODO 2: REPORTE DE AUSENTES ---
+                st.markdown("### 🔔 Estudiantes Ausentes")
+                st.write("A continuación, se muestran los estudiantes que no asistieron. Puede enviar la notificación directamente.")
                 
+                if st.button("🔄 Volver al Scanner"):
+                    st.session_state.captura_finalizada = False
+                    st.rerun()
+
                 st.divider()
                 hoy = datetime.now().strftime("%Y-%m-%d")
                 total_est = pd.read_sql("SELECT documento, nombre, whatsapp FROM estudiantes WHERE grado=? AND profe_id=?", conn, params=(ga, st.session_state.user))
@@ -142,26 +149,35 @@ elif menu == "📷 Scanner QR":
                 ausentes = total_est[~total_est['documento'].isin(presentes['estudiante_id'])]
                 
                 if ausentes.empty:
-                    st.success("¡Excelente! Asistencia completa hoy.")
+                    st.success("¡Excelente! Todos los estudiantes registrados en este curso asistieron.")
                 else:
-                    st.error(f"Se detectaron {len(ausentes)} ausentes:")
                     for _, aus in ausentes.iterrows():
-                        c1, c2 = st.columns([3, 1])
-                        c1.markdown(f"**{aus['nombre']}**")
-                        if aus['whatsapp']:
-                            msg = f"Cordial saludo. Le informo que el estudiante {aus['nombre']} no asistió hoy a la clase de {ma}. Prof. {st.session_state.profe_nom}."
-                            link = f"https://wa.me/57{aus['whatsapp']}?text={urllib.parse.quote(msg)}"
-                            c2.markdown(f'<a href="{link}" target="_blank"><button style="background-color:#25d366; color:white; border:none; padding:5px 10px; border-radius:5px; cursor:pointer; width:100%;">WhatsApp</button></a>', unsafe_allow_html=True)
-                        else: c2.write("Sin tel.")
+                        with st.container():
+                            c1, c2 = st.columns([3, 1])
+                            c1.error(f"🔴 {aus['nombre']}")
+                            
+                            if aus['whatsapp']:
+                                # MENSAJE ORGANIZADO Y PROFESIONAL
+                                saludo = "Cordial saludo, Sr. Padre de Familia / Acudiente."
+                                cuerpo = f"Le informo que el estudiante {aus['nombre']} NO asistió hoy ({hoy}) a la clase de {ma} (Tema: {tema})."
+                                despedida = f"Atentamente,\nProf. {st.session_state.profe_nom}\n{COLEGIO}"
+                                
+                                mensaje_completo = f"{saludo}\n\n{cuerpo}\n\n{despedida}"
+                                link = f"https://wa.me/57{aus['whatsapp']}?text={urllib.parse.quote(mensaje_completo)}"
+                                
+                                c2.markdown(f'<a href="{link}" target="_blank"><button style="background-color:#25d366; color:white; border:none; padding:8px 15px; border-radius:5px; cursor:pointer; width:100%; font-weight:bold;">📲 Notificar</button></a>', unsafe_allow_html=True)
+                            else:
+                                c2.warning("Sin número")
+                        st.divider()
 
 # 4. REPORTES PDF
 elif menu == "📊 Reportes":
-    st.subheader("Generación de Planillas Oficiales")
+    st.subheader("Generación de Planillas PDF")
     df_c = pd.read_sql("SELECT grado, materia FROM cursos WHERE profe_id=?", conn, params=(st.session_state.user,))
     if not df_c.empty:
-        sel_r = st.selectbox("Seleccione Curso:", [f"{r['grado']} | {r['materia']}" for _, r in df_c.iterrows()])
+        sel_r = st.selectbox("Curso:", [f"{r['grado']} | {r['materia']}" for _, r in df_c.iterrows()])
         gr, mr = sel_r.split(" | ")
-        if st.button("📄 Descargar PDF", type="primary", use_container_width=True):
+        if st.button("📄 Generar Reporte Completo", type="primary"):
             estudiantes = pd.read_sql("SELECT documento, nombre FROM estudiantes WHERE grado=? AND materia=? AND profe_id=? ORDER BY nombre ASC", conn, params=(gr, mr, st.session_state.user))
             asist_data = pd.read_sql("SELECT estudiante_id, fecha, tema FROM asistencia WHERE grado=? AND materia=? AND profe_id=?", conn, params=(gr, mr, st.session_state.user))
             clases = asist_data[['fecha', 'tema']].drop_duplicates().sort_values(by='fecha').values.tolist()
@@ -172,9 +188,8 @@ elif menu == "📊 Reportes":
             
             canv.setFont("Helvetica-Bold", 14); canv.drawCentredString(ancho_pag/2, alto_pag-1.2*cm, COLEGIO)
             canv.setFont("Helvetica", 9); x_i = margen+2.5*cm
-            canv.drawString(x_i, alto_pag-1.7*cm, f"Asignatura: {mr}")
-            canv.drawString(x_i, alto_pag-2.1*cm, f"Grado: {gr}")
-            canv.drawString(x_i, alto_pag-2.5*cm, f"Docente: {st.session_state.profe_nom}")
+            canv.drawString(x_i, alto_pag-1.7*cm, f"Asignatura: {mr} | Grado: {gr}")
+            canv.drawString(x_i, alto_pag-2.3*cm, f"Docente: {st.session_state.profe_nom}")
 
             w_nom, w_totales = 8.0*cm, 3.2*cm 
             espacio_libre = ancho_pag - (margen * 2) - w_nom - w_totales
@@ -212,15 +227,17 @@ elif menu == "📊 Reportes":
                 canv.rect(x_f, y_f, 1.6*cm, h_row); canv.drawCentredString(x_f+0.8*cm, y_f+0.15*cm, str(t_as))
                 canv.rect(x_f+1.6*cm, y_f, 1.6*cm, h_row); canv.drawCentredString(x_f+2.4*cm, y_f+0.15*cm, str(t_au))
                 y_f -= h_row
-            canv.save(); st.download_button("📥 Descargar Reporte", pdf_io.getvalue(), f"Reporte_{gr}.pdf", use_container_width=True)
+            canv.save(); st.download_button("📥 Descargar Reporte PDF", pdf_io.getvalue(), f"Reporte_{gr}.pdf", use_container_width=True)
 
 # 5. REINICIO
 elif menu == "⚙️ Reinicio":
-    if st.button("LIMPIAR MIS DATOS"):
+    if st.button("LIMPIAR BASE DE DATOS"):
         conn.execute("DELETE FROM asistencia WHERE profe_id=?", (st.session_state.user,))
         conn.execute("DELETE FROM estudiantes WHERE profe_id=?", (st.session_state.user,))
         conn.execute("DELETE FROM cursos WHERE profe_id=?", (st.session_state.user,))
-        conn.commit(); st.success("Datos borrados."); st.rerun()
+        conn.commit(); st.success("Datos eliminados exitosamente."); st.rerun()
 
 if st.sidebar.button("Cerrar Sesión"):
-    st.session_state.logueado = False; st.rerun()
+    st.session_state.logueado = False
+    st.session_state.captura_finalizada = False
+    st.rerun()
