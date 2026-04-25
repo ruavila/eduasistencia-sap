@@ -3,7 +3,7 @@ import hashlib
 import os
 
 def get_connection():
-    """Establece la conexión con la base de datos local."""
+    """Establece la conexión con la base de datos local en la carpeta data."""
     if not os.path.exists("data"):
         os.makedirs("data")
     return sqlite3.connect("data/asistencia.db", check_same_thread=False)
@@ -48,7 +48,7 @@ def init_db():
         )
     """)
     
-    # Tabla de Asistencia
+    # Tabla de Asistencia (Incluye columna Tema)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS asistencia (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
