@@ -3,21 +3,21 @@ import hashlib
 import os
 
 def get_connection():
-    """Establece la conexión con la base de datos asegurando que la carpeta exista."""
+    """Establece conexión asegurando que la carpeta 'data' exista."""
     if not os.path.exists("data"):
         os.makedirs("data")
     return sqlite3.connect("data/asistencia.db", check_same_thread=False)
 
 def hash_password(password):
-    """Encripta las contraseñas para seguridad de los docentes."""
+    """Encripta las contraseñas para seguridad del docente."""
     return hashlib.sha256(password.encode()).hexdigest()
 
 def init_db():
-    """Inicializa la base de datos y crea las tablas si no existen."""
+    """Inicializa todas las tablas del sistema EduAsistencia Pro."""
     conn = get_connection()
     cursor = conn.cursor()
     
-    # 1. TABLA DE DOCENTES (USUARIOS)
+    # Tabla de Usuarios (Docentes)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
             usuario TEXT PRIMARY KEY,
@@ -26,7 +26,7 @@ def init_db():
         )
     """)
     
-    # 2. TABLA DE CURSOS
+    # Tabla de Cursos
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS cursos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -36,7 +36,7 @@ def init_db():
         )
     """)
     
-    # 3. TABLA DE ESTUDIANTES
+    # Tabla de Estudiantes
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS estudiantes (
             documento TEXT PRIMARY KEY,
@@ -48,7 +48,7 @@ def init_db():
         )
     """)
     
-    # 4. TABLA DE ASISTENCIA (Estructura completa para reportes)
+    # Tabla de Asistencia (Estructura completa para evitar errores en reportes)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS asistencia (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -65,15 +65,16 @@ def init_db():
     conn.commit()
     conn.close()
 
-# --- Bloque de mantenimiento opcional (para corregir errores de versiones previas) ---
-def check_db_maintenance():
-    """Asegura que si la base de datos es antigua, se añadan las columnas faltantes."""
+def maintenance_mode():
+    """Función para actualizar bases de datos antiguas sin perder datos."""
     conn = get_connection()
     cursor = conn.cursor()
-    try:
-        # Intenta añadir 'tema' si el usuario viene de una versión vieja
-        cursor.execute("ALTER TABLE asistencia ADD COLUMN tema TEXT")
-    except:
-        pass # Si ya existe, no hace nada
+    # Intenta añadir columnas nuevas si el docente actualiza desde una versión vieja
+    columnas_nuevas = [("asistencia", "tema"), ("asistencia", "profe_id")]
+    for tabla, columna in columnas_nuevas:
+        try:
+            cursor.execute(f"ALTER TABLE {tabla} ADD COLUMN {columna} TEXT")
+        except:
+            pass 
     conn.commit()
     conn.close()
