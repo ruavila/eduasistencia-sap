@@ -3,17 +3,17 @@ import hashlib
 import os
 
 def get_connection():
-    """Establece conexión asegurando que la carpeta 'data' exista."""
+    """Establece la conexión con la base de datos local."""
     if not os.path.exists("data"):
         os.makedirs("data")
     return sqlite3.connect("data/asistencia.db", check_same_thread=False)
 
 def hash_password(password):
-    """Encripta las contraseñas para seguridad del docente."""
+    """Encripta las contraseñas para seguridad de los docentes."""
     return hashlib.sha256(password.encode()).hexdigest()
 
 def init_db():
-    """Inicializa todas las tablas del sistema EduAsistencia Pro."""
+    """Crea la estructura de tablas completa si no existe."""
     conn = get_connection()
     cursor = conn.cursor()
     
@@ -48,7 +48,7 @@ def init_db():
         )
     """)
     
-    # Tabla de Asistencia (Estructura completa para evitar errores en reportes)
+    # Tabla de Asistencia
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS asistencia (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -65,16 +65,18 @@ def init_db():
     conn.commit()
     conn.close()
 
-def maintenance_mode():
-    """Función para actualizar bases de datos antiguas sin perder datos."""
+def db_maintenance():
+    """Asegura que las columnas críticas existan en bases de datos previas."""
     conn = get_connection()
     cursor = conn.cursor()
-    # Intenta añadir columnas nuevas si el docente actualiza desde una versión vieja
-    columnas_nuevas = [("asistencia", "tema"), ("asistencia", "profe_id")]
-    for tabla, columna in columnas_nuevas:
+    tablas_columnas = [
+        ("asistencia", "tema"),
+        ("asistencia", "profe_id")
+    ]
+    for tabla, columna in tablas_columnas:
         try:
             cursor.execute(f"ALTER TABLE {tabla} ADD COLUMN {columna} TEXT")
         except:
-            pass 
+            pass
     conn.commit()
     conn.close()
