@@ -3,21 +3,21 @@ import hashlib
 import os
 
 def get_connection():
-    """Establece la conexión con la base de datos asegurando la carpeta data."""
+    """Establece la conexión con la base de datos local."""
     if not os.path.exists("data"):
         os.makedirs("data")
     return sqlite3.connect("data/asistencia.db", check_same_thread=False)
 
 def hash_password(password):
-    """Encripta las contraseñas para seguridad del docente."""
+    """Encripta las contraseñas para seguridad de los docentes."""
     return hashlib.sha256(password.encode()).hexdigest()
 
 def init_db():
-    """Inicializa la base de datos y crea las tablas necesarias."""
+    """Crea la estructura de tablas completa si no existe."""
     conn = get_connection()
     cursor = conn.cursor()
     
-    # Tabla de Docentes
+    # Tabla de Usuarios (Docentes)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
             usuario TEXT PRIMARY KEY,
