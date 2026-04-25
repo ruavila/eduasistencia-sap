@@ -48,7 +48,7 @@ def init_db():
         )
     """)
     
-    # Tabla de Asistencia (Incluye columna Tema)
+    # Tabla de Asistencia
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS asistencia (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -58,8 +58,7 @@ def init_db():
             grado TEXT,
             materia TEXT,
             tema TEXT,
-            profe_id TEXT
-        )
+            profe_id TEXT)
     """)
     
     conn.commit()
