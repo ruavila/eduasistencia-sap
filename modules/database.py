@@ -3,18 +3,20 @@ import hashlib
 import os
 
 def get_connection():
-    # Creamos la carpeta 'data' si no existe para evitar errores de ruta
+    # Asegura que la carpeta de datos exista en el servidor de Streamlit
     if not os.path.exists("data"):
         os.makedirs("data")
     return sqlite3.connect("data/asistencia.db", check_same_thread=False)
 
 def hash_password(password):
+    # Encriptación para seguridad de los docentes
     return hashlib.sha256(password.encode()).hexdigest()
 
 def init_db():
     conn = get_connection()
     cursor = conn.cursor()
     
+    # Tabla de Usuarios (Docentes)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
             usuario TEXT PRIMARY KEY,
@@ -23,6 +25,7 @@ def init_db():
         )
     """)
     
+    # Tabla de Cursos
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS cursos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -32,7 +35,7 @@ def init_db():
         )
     """)
     
-    # Se eliminó cualquier referencia a 'id' para evitar el error 'no such column'
+    # Tabla de Estudiantes (Llave primaria: documento)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS estudiantes (
             documento TEXT PRIMARY KEY,
@@ -44,6 +47,7 @@ def init_db():
         )
     """)
     
+    # Tabla de Asistencia (Incluye columna tema y profe_id)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS asistencia (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
