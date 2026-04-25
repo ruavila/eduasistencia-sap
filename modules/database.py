@@ -48,7 +48,7 @@ def init_db():
         )
     """)
     
-    # Tabla de Asistencia (Incluye columna Tema para el reporte)
+    # Tabla de Asistencia
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS asistencia (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
