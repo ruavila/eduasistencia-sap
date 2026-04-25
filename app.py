@@ -68,7 +68,7 @@ if not st.session_state.logueado:
                 <hr style='border: 0.5px solid #f0f0f0;'>
                 <b>{APP_NAME}</b> v2.5.0<br>
                 © 2026 - Todos los derechos reservados<br>
-                Desarrollado por: <b>Tu Nombre/Copyright</b>
+                Desarrollado por: <b>Rubén Darío Ávila Sandoval/ email: ruavila@gmail.com</b>
             </div>
             """, unsafe_allow_html=True
         )
