@@ -122,15 +122,16 @@ elif menu == "📊 Reportes":
             pdf_io = io.BytesIO(); canv = canvas.Canvas(pdf_io, pagesize=landscape(legal))
             ancho_pag, alto_pag = landscape(legal); margen = 1.0*cm
             
-            # ESCUDO CON TRANSPARENCIA
+            # ESCUDO CON TRANSPARENCIA (mask='auto')
             if os.path.exists(ESCUDO_PATH):
                 canv.drawImage(ESCUDO_PATH, margen, alto_pag - 2.5*cm, width=2.2*cm, height=2.2*cm, mask='auto', preserveAspectRatio=True)
             
-            # ENCABEZADO PLANILLA
+            # ENCABEZADO PLANILLA [cite: 1, 3, 4]
             canv.setFont("Helvetica-Bold", 14); canv.drawCentredString(ancho_pag/2, alto_pag - 1.2*cm, COLEGIO)
-            canv.setFont("Helvetica", 9); canv.drawString(margen + 2.5*cm, alto_pag - 1.8*cm, f"Asignatura: {mr}")
+            canv.setFont("Helvetica", 9)
+            canv.drawString(margen + 2.5*cm, alto_pag - 1.8*cm, f"Asignatura: {mr}")
             canv.drawString(margen + 2.5*cm, alto_pag - 2.3*cm, f"Docente: {st.session_state.profe_nom}")
-            canv.drawString(ancho_pag - 5.5*cm, alto_pag - 1.8*cm, f"Curso: {gr}")
+            canv.drawString(ancho_pag - 5.5*cm, alto_pag - 1.8*cm, f"Grado: {gr}") # GRADO AGREGADO
 
             # CÁLCULO DE COLUMNAS DINÁMICAS
             w_nom = 8.0*cm; w_totales = 3.2*cm 
@@ -139,19 +140,19 @@ elif menu == "📊 Reportes":
             w_col = min(max(espacio_libre / n_clases, 1.4*cm), 3.5*cm) if n_clases > 0 else 1.4*cm
 
             x_curr, y_cab = margen, alto_pag - 4.2*cm
-            h_cab = 1.2*cm # Espacio para dos filas (Tema y Fecha)
+            h_cab = 1.2*cm # Espacio para dos filas (Tema y Fecha) [cite: 2]
             
             # Celda Nombre
             canv.rect(x_curr, y_cab, w_nom, h_cab)
             canv.setFont("Helvetica-Bold", 8); canv.drawCentredString(x_curr + w_nom/2, y_cab + 0.5*cm, "NOMBRE DEL ESTUDIANTE")
             
-            # Celdas Clases (Doble Nivel)
+            # Celdas Clases (Doble Nivel) [cite: 2]
             x_h = x_curr + w_nom
             for f, t in clases:
                 canv.rect(x_h, y_cab, w_col, h_cab)
                 canv.line(x_h, y_cab + 0.6*cm, x_h + w_col, y_cab + 0.6*cm) # Línea divisoria
-                canv.setFont("Helvetica-Bold", 6); canv.drawCentredString(x_h + w_col/2, y_cab + 0.85*cm, f"{t[:15]}") # Tema
-                canv.setFont("Helvetica", 6); canv.drawCentredString(x_h + w_col/2, y_cab + 0.25*cm, f"{f}") # Fecha
+                canv.setFont("Helvetica-Bold", 6); canv.drawCentredString(x_h + w_col/2, y_cab + 0.85*cm, f"{t[:15]}") # Tema arriba
+                canv.setFont("Helvetica", 6); canv.drawCentredString(x_h + w_col/2, y_cab + 0.25*cm, f"{f}") # Fecha abajo
                 x_h += w_col
             
             # Totales Cabecera
@@ -159,7 +160,7 @@ elif menu == "📊 Reportes":
             x_h += 1.6*cm
             canv.rect(x_h, y_cab, 1.6*cm, h_cab); canv.drawCentredString(x_h + 0.8*cm, y_cab + 0.5*cm, "Ausen.")
             
-            # FILAS ESTUDIANTES
+            # FILAS ESTUDIANTES [cite: 2]
             h_row, y_f = 0.55*cm, y_cab - 0.55*cm
             for i, est in estudiantes.iterrows():
                 if y_f < margen + 0.5*cm: canv.showPage(); y_f = alto_pag - 3.5*cm
