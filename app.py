@@ -24,13 +24,14 @@ if 'logueado' not in st.session_state:
 if 'captura_finalizada' not in st.session_state: 
     st.session_state.captura_finalizada = False
 
-# --- AUTENTICACIÓN VISUAL ---
+# --- SECCIÓN VISUAL: LOGIN MEJORADO ---
 if not st.session_state.logueado:
     _, col_central, _ = st.columns([1, 2, 1])
     with col_central:
         c1, c2 = st.columns([1, 4])
         with c1:
-            if os.path.exists(ESCUDO_PATH): st.image(ESCUDO_PATH, width=80)
+            if os.path.exists(ESCUDO_PATH): 
+                st.image(ESCUDO_PATH, width=80)
         with c2:
             st.markdown(f"<h3 style='margin-bottom:0; color:#1E1E1E;'>{COLEGIO}</h3>", unsafe_allow_html=True)
             st.markdown(f"<h1 style='margin-top:0; color:#4F8BF9; font-size:42px;'>{APP_NAME}</h1>", unsafe_allow_html=True)
@@ -65,15 +66,15 @@ if not st.session_state.logueado:
             f"""
             <div style='text-align: center; color: #888888; font-size: 12px;'>
                 <hr style='border: 0.5px solid #f0f0f0;'>
-                <b>{APP_NAME}</b> v2.5.0<br>
+                <b>{APP_NAME}</b> v2.6.0<br>
                 © 2026 - Todos los derechos reservados<br>
-                Desarrollado por: <b>EduAsistencia Pro Team</b>
+                Desarrollado por: <b>Tu Nombre/Copyright</b>
             </div>
             """, unsafe_allow_html=True
         )
     st.stop()
 
-# --- CABECERA APP ---
+# --- CABECERA DE LA APP ---
 col_esc, col_txt = st.columns([1, 4])
 with col_esc:
     if os.path.exists(ESCUDO_PATH): st.image(ESCUDO_PATH, width=90)
@@ -84,7 +85,7 @@ st.divider()
 
 menu = st.sidebar.radio("Navegación", ["📚 Cursos", "👤 Estudiantes", "📷 Scanner QR", "📊 Reportes", "⚙️ Reinicio"])
 
-# 1. CURSOS
+# 1. GESTIÓN DE CURSOS
 if menu == "📚 Cursos":
     st.subheader("Configuración de Cursos")
     g, m = st.text_input("Grado"), st.text_input("Asignatura")
@@ -98,15 +99,15 @@ if menu == "📚 Cursos":
         if c2.button("🗑️", key=f"del_{r['id']}"):
             conn.execute("DELETE FROM cursos WHERE id=?", (r['id'],)); conn.commit(); st.rerun()
 
-# 2. ESTUDIANTES
+# 2. GESTIÓN DE ESTUDIANTES (CARNETS CON GRADO INCLUIDO)
 elif menu == "👤 Estudiantes":
-    st.subheader("Carga y Generación de QRs")
+    st.subheader("Carga de Estudiantes y Generación de QRs")
     df_c = pd.read_sql("SELECT grado, materia FROM cursos WHERE profe_id=?", conn, params=(st.session_state.user,))
     if not df_c.empty:
-        sel = st.selectbox("Curso:", [f"{r['grado']} | {r['materia']}" for _, r in df_c.iterrows()])
+        sel = st.selectbox("Curso destino:", [f"{r['grado']} | {r['materia']}" for _, r in df_c.iterrows()])
         gs, ms = sel.split(" | ")
-        f = st.file_uploader("Subir Excel", type=["xlsx"])
-        if f and st.button("Procesar"):
+        f = st.file_uploader("Subir archivo Excel", type=["xlsx"])
+        if f and st.button("Procesar y Generar PDF"):
             df = pd.read_excel(f); df.columns = [str(c).strip().lower() for c in df.columns]
             pdf = io.BytesIO(); canv = canvas.Canvas(pdf, pagesize=landscape(legal))
             x, y, col = 1.5*cm, landscape(legal)[1]-5*cm, 0
@@ -114,17 +115,22 @@ elif menu == "👤 Estudiantes":
                 e_id, e_nm = str(r['estudiante_id']).split('.')[0], str(r['nombre']).upper()
                 e_ws = "".join(filter(str.isdigit, str(r.get('whatsapp', '')))).split('.')[0]
                 conn.execute("INSERT OR REPLACE INTO estudiantes VALUES (?,?,?,?,?,?)", (e_id, e_nm, e_ws, gs, ms, st.session_state.user))
+                
                 qr = qrcode.make(e_id); t_qr = io.BytesIO(); qr.save(t_qr, format='PNG'); t_qr.seek(0)
                 canv.drawInlineImage(Image.open(t_qr), x, y, 4*cm, 4*cm)
-                canv.setFont("Helvetica-Bold", 7); canv.drawString(x, y-0.6*cm, e_nm[:22])
+                
+                # Texto debajo del QR
+                canv.setFont("Helvetica-Bold", 7); canv.drawString(x, y-0.4*cm, e_nm[:22])
+                canv.setFont("Helvetica", 6); canv.drawString(x, y-0.8*cm, f"GRADO: {gs}")
+                
                 col += 1
-                if col >= 3: x, y, col = 1.5*cm, y-6*cm, 0
+                if col >= 3: x, y, col = 1.5*cm, y-6.5*cm, 0
                 else: x += 6.5*cm
                 if y < 2*cm: canv.showPage(); x, y, col = 1.5*cm, landscape(legal)[1]-5*cm, 0
             conn.commit(); canv.save()
-            st.download_button("📥 Descargar PDF QRs", pdf.getvalue(), f"QR_{gs}.pdf", use_container_width=True)
+            st.download_button("📥 Descargar Carnets QR", pdf.getvalue(), f"QR_{gs}.pdf", use_container_width=True)
 
-# 3. SCANNER Y AUSENTES
+# 3. SCANNER QR Y NOTIFICACIÓN
 elif menu == "📷 Scanner QR":
     st.subheader("Control de Asistencia")
     df_c = pd.read_sql("SELECT grado, materia FROM cursos WHERE profe_id=?", conn, params=(st.session_state.user,))
@@ -132,11 +138,13 @@ elif menu == "📷 Scanner QR":
         sel_as = st.selectbox("Curso:", [f"{r['grado']} | {r['materia']}" for _, r in df_c.iterrows()])
         ga, ma = sel_as.split(" | ")
         tema = st.text_input("Tema de la clase:")
+        
         if tema:
             if not st.session_state.captura_finalizada:
                 if st.button("⏹️ Finalizar Captura y Ver Ausentes", type="primary", use_container_width=True):
                     st.session_state.captura_finalizada = True; st.rerun()
-                st.info("Scanner activo...")
+
+                st.info("Scanner activo... Registrando ingresos")
                 cod = qrcode_scanner(key=f"sc_{ga}")
                 if cod:
                     id_cl = "".join(filter(str.isalnum, str(cod)))
@@ -150,28 +158,33 @@ elif menu == "📷 Scanner QR":
                 st.markdown("### 🔔 Estudiantes Ausentes")
                 if st.button("🔄 Volver al Scanner"):
                     st.session_state.captura_finalizada = False; st.rerun()
+                
                 st.divider()
                 hoy = datetime.now().strftime("%Y-%m-%d")
                 total = pd.read_sql("SELECT documento, nombre, whatsapp FROM estudiantes WHERE grado=? AND profe_id=?", conn, params=(ga, st.session_state.user))
                 presentes = pd.read_sql("SELECT estudiante_id FROM asistencia WHERE fecha=? AND grado=? AND tema=?", conn, params=(hoy, ga, tema))
                 ausentes = total[~total['documento'].isin(presentes['estudiante_id'])]
+                
                 for _, aus in ausentes.iterrows():
                     c1, c2 = st.columns([3, 1])
                     c1.error(f"❌ {aus['nombre']}")
                     if aus['whatsapp']:
-                        msg = urllib.parse.quote(f"Cordial saludo.\n\nLe informo que el estudiante {aus['nombre']} NO asistió hoy ({hoy}) a la clase de {ma} ({tema}).\n\nAtentamente,\nProf. {st.session_state.profe_nom}\n{COLEGIO}")
+                        saludo = "Cordial saludo."
+                        cuerpo = f"Le informo que el estudiante {aus['nombre']} NO asistió hoy ({hoy}) a la clase de {ma} ({tema})."
+                        desp = f"Atentamente,\nProf. {st.session_state.profe_nom}\n{COLEGIO}"
+                        msg = urllib.parse.quote(f"{saludo}\n\n{cuerpo}\n\n{desp}")
                         link = f"https://wa.me/57{aus['whatsapp']}?text={msg}"
                         c2.markdown(f'<a href="{link}" target="_blank"><button style="background-color:#25d366; color:white; border:none; padding:8px; border-radius:5px; cursor:pointer; width:100%; font-weight:bold;">📲 Notificar</button></a>', unsafe_allow_html=True)
                     st.divider()
 
-# 4. REPORTES (LÓGICA DE AUSENCIA CORREGIDA)
+# 4. REPORTES PDF (CON MARCACIÓN DE AUSENCIAS CORREGIDA)
 elif menu == "📊 Reportes":
-    st.subheader("Generación de Reportes")
+    st.subheader("Generación de Planillas")
     df_c = pd.read_sql("SELECT grado, materia FROM cursos WHERE profe_id=?", conn, params=(st.session_state.user,))
     if not df_c.empty:
-        sel_r = st.selectbox("Curso:", [f"{r['grado']} | {r['materia']}" for _, r in df_c.iterrows()])
+        sel_r = st.selectbox("Seleccione Curso:", [f"{r['grado']} | {r['materia']}" for _, r in df_c.iterrows()])
         gr, mr = sel_r.split(" | ")
-        if st.button("📄 Generar Reporte PDF", type="primary", use_container_width=True):
+        if st.button("📄 Descargar Reporte PDF", type="primary", use_container_width=True):
             estudiantes = pd.read_sql("SELECT documento, nombre FROM estudiantes WHERE grado=? AND profe_id=? ORDER BY nombre ASC", conn, params=(gr, st.session_state.user))
             asist_data = pd.read_sql("SELECT estudiante_id, fecha, tema FROM asistencia WHERE grado=? AND profe_id=?", conn, params=(gr, st.session_state.user))
             clases = asist_data[['fecha', 'tema']].drop_duplicates().sort_values(by='fecha').values.tolist()
@@ -211,7 +224,6 @@ elif menu == "📊 Reportes":
                 x_f, t_as, t_au = mrg+w_nom, 0, 0
                 for f, t in clases:
                     canv.rect(x_f, y_f, w_col, 0.55*cm)
-                    # CORRECCIÓN DE LÓGICA: Comparación estricta
                     asistio = not asist_data[(asist_data['estudiante_id'].astype(str) == str(est['documento'])) & (asist_data['fecha'] == f) & (asist_data['tema'] == t)].empty
                     if asistio:
                         canv.setFont("ZapfDingbats", 9); canv.drawCentredString(x_f+w_col/2, y_f+0.15*cm, "4")
@@ -223,15 +235,34 @@ elif menu == "📊 Reportes":
                 canv.rect(x_f, y_f, 1.6*cm, 0.55*cm); canv.drawCentredString(x_f+0.8*cm, y_f+0.15*cm, str(t_as))
                 canv.rect(x_f+1.6*cm, y_f, 1.6*cm, 0.55*cm); canv.drawCentredString(x_f+2.4*cm, y_f+0.15*cm, str(t_au))
                 y_f -= 0.55*cm
-            canv.save(); st.download_button("📥 Descargar Reporte", pdf_io.getvalue(), f"Reporte_{gr}.pdf", use_container_width=True)
+            canv.save(); st.download_button("📥 Descargar Planilla PDF", pdf_io.getvalue(), f"Reporte_{gr}.pdf", use_container_width=True)
 
-# 5. REINICIO
+# 5. REINICIO Y ZONA DEL PROGRAMADOR
 elif menu == "⚙️ Reinicio":
-    if st.button("LIMPIAR MIS DATOS"):
+    st.subheader("Mantenimiento del Sistema")
+    if st.button("BORRAR TODOS MIS CURSOS Y DATOS"):
         conn.execute("DELETE FROM asistencia WHERE profe_id=?", (st.session_state.user,))
         conn.execute("DELETE FROM estudiantes WHERE profe_id=?", (st.session_state.user,))
         conn.execute("DELETE FROM cursos WHERE profe_id=?", (st.session_state.user,))
-        conn.commit(); st.rerun()
+        conn.commit(); st.success("Datos eliminados."); st.rerun()
+
+    # --- ZONA DEL PROGRAMADOR (OCULTA) ---
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    with st.expander("🛠️ Acceso para Programador"):
+        m_key = st.text_input("Ingrese Clave Master", type="password")
+        if m_key == "AdminEdu2026": # CAMBIA ESTA CLAVE
+            st.info("Panel de Administración Activo")
+            tabla = st.selectbox("Auditar tabla:", ["usuarios", "cursos", "estudiantes", "asistencia"])
+            st.dataframe(pd.read_sql(f"SELECT * FROM {tabla}", conn))
+            
+            if os.path.exists("data/asistencia.db"):
+                with open("data/asistencia.db", "rb") as f:
+                    st.download_button("📥 Sacar Copia de Seguridad (.db)", f, "backup_asistencia.db")
+            
+            f_res = st.file_uploader("Restaurar desde backup", type=["db"])
+            if f_res and st.button("⚠️ RESTAURAR BASE DE DATOS"):
+                with open("data/asistencia.db", "wb") as f: f.write(f_res.getbuffer())
+                st.success("Sistema restaurado. Reinicie la aplicación.")
 
 if st.sidebar.button("Cerrar Sesión"):
     st.session_state.logueado = False
