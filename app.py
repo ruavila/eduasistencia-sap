@@ -14,12 +14,12 @@ from streamlit_qrcode_scanner import qrcode_scanner
 from modules.database import init_db, get_connection, hash_password
 from modules.config import APP_NAME, COLEGIO, ESCUDO_PATH
 
-# --- INICIALIZACIÓN DE ENTORNO ---
+# --- INICIALIZACIÓN ---
 st.set_page_config(page_title=APP_NAME, layout="wide", initial_sidebar_state="collapsed")
 init_db()
 conn = get_connection()
 
-# Asegurar que la tabla usuarios tenga las columnas de recuperación
+# Asegurar estructura de recuperación en la DB
 try:
     conn.execute("ALTER TABLE usuarios ADD COLUMN pregunta_seguridad TEXT")
     conn.execute("ALTER TABLE usuarios ADD COLUMN respuesta_seguridad TEXT")
@@ -53,76 +53,73 @@ if not st.session_state.logueado:
                 if res:
                     st.session_state.logueado, st.session_state.user, st.session_state.profe_nom = True, u_l, res[0]
                     st.rerun()
-                else: st.error("Usuario o contraseña incorrectos.")
+                else: st.error("Credenciales incorrectas.")
         
         with t2:
-            nu = st.text_input("Definir Usuario ID")
+            nu = st.text_input("Usuario ID (Ej: cedula)")
             nn = st.text_input("Nombre Completo")
-            np = st.text_input("Definir Contraseña", type="password")
-            st.info("Configura tu dato secreto para recuperación:")
+            np = st.text_input("Contraseña", type="password")
+            st.info("Dato de recuperación:")
             preg = st.selectbox("Pregunta de Seguridad", ["¿Nombre de su primera mascota?", "¿Ciudad de nacimiento?", "¿Comida favorita?"])
-            resp = st.text_input("Respuesta Secreta", help="Dato único que solo usted sepa")
-            
+            resp = st.text_input("Respuesta Secreta")
             if st.button("✨ CREAR CUENTA", use_container_width=True):
                 if nu and nn and np and resp:
                     try:
                         conn.execute("INSERT INTO usuarios (usuario, password, nombre, pregunta_seguridad, respuesta_seguridad) VALUES (?,?,?,?,?)", 
                                      (nu, hash_password(np), nn, preg, resp.strip().lower()))
-                        conn.commit(); st.success("Cuenta creada. Ya puede ingresar.")
+                        conn.commit(); st.success("Registrado con éxito.")
                     except: st.error("El usuario ya existe.")
-                else: st.warning("Complete todos los campos.")
-
+        
         with t3:
-            st.markdown("### Recuperación de Cuenta")
-            ur = st.text_input("Ingrese su Usuario ID:")
+            st.markdown("### Recuperación")
+            ur = st.text_input("Usuario ID a recuperar:")
             if ur:
                 u_data = conn.execute("SELECT pregunta_seguridad, respuesta_seguridad FROM usuarios WHERE usuario=?", (ur,)).fetchone()
                 if u_data:
-                    st.write(f"**Su pregunta:** {u_data[0]}")
-                    r_int = st.text_input("Respuesta Secreta:", type="password", key="res_rec")
-                    n_p = st.text_input("Nueva Contraseña:", type="password", key="new_p_rec")
-                    if st.button("✅ REESTABLECER", use_container_width=True):
+                    st.write(f"**Pregunta:** {u_data[0]}")
+                    r_int = st.text_input("Respuesta:", type="password")
+                    n_p = st.text_input("Nueva Clave:", type="password")
+                    if st.button("✅ ACTUALIZAR", use_container_width=True):
                         if r_int.strip().lower() == u_data[1]:
                             conn.execute("UPDATE usuarios SET password=? WHERE usuario=?", (hash_password(n_p), ur))
-                            conn.commit(); st.success("Contraseña actualizada con éxito.")
+                            conn.commit(); st.success("Clave actualizada.")
                         else: st.error("Respuesta incorrecta.")
-                else: st.error("Usuario no encontrado.")
     st.stop()
 
-# --- CABECERA DE LA APLICACIÓN LOGUEADA ---
+# --- CABECERA APP LOGUEADA ---
 col_esc, col_txt = st.columns([1, 4])
 with col_esc:
     if os.path.exists(ESCUDO_PATH): st.image(ESCUDO_PATH, width=90)
 with col_txt:
     st.markdown(f"<h2 style='margin:0;'>{COLEGIO}</h2>", unsafe_allow_html=True)
-    st.markdown(f"<p style='margin:0; color:#4F8BF9;'><b>{APP_NAME}</b> | Docente: {st.session_state.profe_nom}</p>", unsafe_allow_html=True)
+    st.markdown(f"<p style='margin:0; color:#4F8BF9;'>{APP_NAME} | Docente: {st.session_state.profe_nom}</p>", unsafe_allow_html=True)
 st.divider()
 
 menu = st.sidebar.radio("Navegación", ["📚 Cursos", "👤 Estudiantes", "📷 Scanner QR", "📊 Reportes", "⚙️ Reinicio"])
 
-# --- BLOQUE 2: GESTIÓN DE CURSOS ---
+# --- 1. CURSOS ---
 if menu == "📚 Cursos":
-    st.subheader("Configuración de Cursos")
+    st.subheader("Mis Cursos")
     g, m = st.text_input("Grado"), st.text_input("Asignatura")
-    if st.button("Añadir Curso"):
+    if st.button("Añadir"):
         conn.execute("INSERT INTO cursos (grado, materia, profe_id) VALUES (?,?,?)", (g, m, st.session_state.user))
         conn.commit(); st.rerun()
     df_c = pd.read_sql("SELECT id, grado, materia FROM cursos WHERE profe_id=?", conn, params=(st.session_state.user,))
     for _, r in df_c.iterrows():
         c1, c2 = st.columns([5, 1])
         c1.info(f"{r['grado']} - {r['materia']}")
-        if c2.button("🗑️", key=f"del_{r['id']}"):
+        if c2.button("🗑️", key=f"d_{r['id']}"):
             conn.execute("DELETE FROM cursos WHERE id=?", (r['id'],)); conn.commit(); st.rerun()
 
-# --- BLOQUE 3: ESTUDIANTES Y CARNETS (CON GRADO) ---
+# --- 2. ESTUDIANTES Y CARNETS ---
 elif menu == "👤 Estudiantes":
-    st.subheader("Carga de Estudiantes")
+    st.subheader("Carga y Carnetización")
     df_c = pd.read_sql("SELECT grado, materia FROM cursos WHERE profe_id=?", conn, params=(st.session_state.user,))
     if not df_c.empty:
         sel = st.selectbox("Curso:", [f"{r['grado']} | {r['materia']}" for _, r in df_c.iterrows()])
         gs, ms = sel.split(" | ")
         f = st.file_uploader("Subir Excel", type=["xlsx"])
-        if f and st.button("Procesar Estudiantes"):
+        if f and st.button("Generar Carnets"):
             df = pd.read_excel(f); df.columns = [str(c).strip().lower() for c in df.columns]
             pdf = io.BytesIO(); canv = canvas.Canvas(pdf, pagesize=landscape(legal))
             x, y, col = 1.5*cm, landscape(legal)[1]-5*cm, 0
@@ -139,21 +136,20 @@ elif menu == "👤 Estudiantes":
                 else: x += 6.5*cm
                 if y < 2*cm: canv.showPage(); x, y, col = 1.5*cm, landscape(legal)[1]-5*cm, 0
             conn.commit(); canv.save()
-            st.download_button("📥 Descargar PDF Carnets", pdf.getvalue(), f"QR_{gs}.pdf", use_container_width=True)
+            st.download_button("📥 Descargar Carnets", pdf.getvalue(), f"QR_{gs}.pdf")
 
-# --- BLOQUE 4: SCANNER Y NOTIFICACIONES ---
+# --- 3. SCANNER ---
 elif menu == "📷 Scanner QR":
-    st.subheader("Captura de Asistencia")
+    st.subheader("Control de Asistencia")
     df_c = pd.read_sql("SELECT grado, materia FROM cursos WHERE profe_id=?", conn, params=(st.session_state.user,))
     if not df_c.empty:
         sel_as = st.selectbox("Curso:", [f"{r['grado']} | {r['materia']}" for _, r in df_c.iterrows()])
         ga, ma = sel_as.split(" | ")
-        tema = st.text_input("Tema de clase:")
+        tema = st.text_input("Tema de hoy:")
         if tema:
             if not st.session_state.captura_finalizada:
-                if st.button("⏹️ Finalizar y Ver Ausentes", type="primary", use_container_width=True):
+                if st.button("⏹️ Finalizar y Ver Ausentes", type="primary"):
                     st.session_state.captura_finalizada = True; st.rerun()
-                st.info("Scanner Activo")
                 cod = qrcode_scanner(key=f"sc_{ga}")
                 if cod:
                     id_cl = "".join(filter(str.isalnum, str(cod)))
@@ -164,7 +160,6 @@ elif menu == "📷 Scanner QR":
                             conn.execute("INSERT INTO asistencia (estudiante_id, fecha, hora, grado, materia, tema, profe_id) VALUES (?,?,?,?,?,?,?)", (doc, hoy, datetime.now().strftime("%H:%M:%S"), ga, ma, tema, st.session_state.user))
                             conn.commit(); st.success(f"Registrado: {nom}")
             else:
-                st.markdown("### 🔔 Ausentes Detectados")
                 if st.button("🔄 Volver al Scanner"):
                     st.session_state.captura_finalizada = False; st.rerun()
                 hoy = datetime.now().strftime("%Y-%m-%d")
@@ -176,16 +171,16 @@ elif menu == "📷 Scanner QR":
                     c1.error(f"❌ {a['nombre']}")
                     if a['whatsapp']:
                         msg = urllib.parse.quote(f"Cordial saludo. El estudiante {a['nombre']} no asistió hoy ({hoy}) a la clase de {ma}. Prof. {st.session_state.profe_nom}")
-                        c2.markdown(f'<a href="https://wa.me/57{a["whatsapp"]}?text={msg}" target="_blank"><button style="background:#25d366; color:white; border:none; padding:8px; border-radius:5px; width:100%;">📲 WhatsApp</button></a>', unsafe_allow_html=True)
+                        c2.markdown(f'<a href="https://wa.me/57{a["whatsapp"]}?text={msg}" target="_blank"><button style="background:#25d366; color:white; border:none; padding:8px; border-radius:5px; width:100%;">Notificar</button></a>', unsafe_allow_html=True)
 
-# --- BLOQUE 5: REPORTES PDF (X PARA AUSENCIA) ---
+# --- 4. REPORTES (CON X, FECHAS, TEMAS Y CONSOLIDADO) ---
 elif menu == "📊 Reportes":
-    st.subheader("Planillas de Asistencia")
+    st.subheader("Planillas")
     df_c = pd.read_sql("SELECT grado, materia FROM cursos WHERE profe_id=?", conn, params=(st.session_state.user,))
     if not df_c.empty:
         sel_r = st.selectbox("Curso:", [f"{r['grado']} | {r['materia']}" for _, r in df_c.iterrows()])
         gr, mr = sel_r.split(" | ")
-        if st.button("📄 Generar Planilla PDF", type="primary", use_container_width=True):
+        if st.button("📄 Generar PDF"):
             ests = pd.read_sql("SELECT documento, nombre FROM estudiantes WHERE grado=? AND profe_id=? ORDER BY nombre ASC", conn, params=(gr, st.session_state.user))
             asist = pd.read_sql("SELECT estudiante_id, fecha, tema FROM asistencia WHERE grado=? AND profe_id=?", conn, params=(gr, st.session_state.user))
             clases = asist[['fecha', 'tema']].drop_duplicates().sort_values(by='fecha').values.tolist()
@@ -194,24 +189,44 @@ elif menu == "📊 Reportes":
             if os.path.exists(ESCUDO_PATH): canv.drawImage(ESCUDO_PATH, mrg, alto-2.5*cm, width=2.2*cm, height=2.2*cm, mask='auto')
             canv.setFont("Helvetica-Bold", 14); canv.drawCentredString(ancho/2, alto-1.2*cm, COLEGIO)
             canv.setFont("Helvetica", 9); canv.drawString(mrg+2.5*cm, alto-1.7*cm, f"Materia: {mr} | Grado: {gr} | Docente: {st.session_state.profe_nom}")
+            
+            w_nom, n_cl = 7.5*cm, len(clases)
+            w_col = min(max((ancho - (mrg*2) - w_nom - 3.2*cm) / n_cl, 1.5*cm), 3.5*cm) if n_cl > 0 else 1.5*cm
             y_f = alto-4.2*cm
-            # Dibujar cabeceras y cuerpo (lógica de X)
+            
+            # Cabecera tabla
+            canv.rect(mrg, y_f, w_nom, 1.2*cm); canv.setFont("Helvetica-Bold", 8); canv.drawCentredString(mrg+w_nom/2, y_f+0.5*cm, "ESTUDIANTE")
+            x_h = mrg+w_nom
+            for f, t in clases:
+                canv.rect(x_h, y_f, w_col, 1.2*cm); canv.setFont("Helvetica-Bold", 5)
+                canv.drawCentredString(x_h+w_col/2, y_f+0.85*cm, f"{str(t)[:12]}")
+                canv.setFont("Helvetica", 5); canv.drawCentredString(x_h+w_col/2, y_f+0.25*cm, f"{f}")
+                x_h += w_col
+            canv.rect(x_h, y_f, 1.6*cm, 1.2*cm); canv.drawCentredString(x_h+0.8*cm, y_f+0.5*cm, "Asist.")
+            canv.rect(x_h+1.6*cm, y_f, 1.6*cm, 1.2*cm); canv.drawCentredString(x_h+2.4*cm, y_f+0.5*cm, "Ausen.")
+            
+            y_f -= 0.55*cm
             for i, est in ests.iterrows():
                 if y_f < 2*cm: canv.showPage(); y_f = alto-3.5*cm
-                canv.setFont("Helvetica", 7); canv.drawString(mrg+0.1*cm, y_f-0.4*cm, f"{i+1}. {est['nombre'][:40]}")
-                x_f, t_as, t_au = mrg+8.0*cm, 0, 0
+                canv.rect(mrg, y_f, w_nom, 0.55*cm); canv.setFont("Helvetica", 7)
+                canv.drawString(mrg+0.1*cm, y_f+0.15*cm, f"{i+1}. {est['nombre'][:40]}")
+                x_f, t_as, t_au = mrg+w_nom, 0, 0
                 for f, t in clases:
-                    presente = not asist[(asist['estudiante_id'].astype(str) == str(est['documento'])) & (asist['fecha'] == f) & (asist['tema'] == t)].empty
-                    txt = "4" if presente else "X"
-                    canv.setFont("ZapfDingbats" if presente else "Helvetica-Bold", 8)
-                    canv.drawCentredString(x_f+0.7*cm, y_f-0.4*cm, txt)
-                    if presente: t_as += 1
-                    else: t_au += 1
-                    x_f += 1.4*cm
+                    canv.rect(x_f, y_f, w_col, 0.55*cm)
+                    pres = not asist[(asist['estudiante_id'].astype(str)==str(est['documento'])) & (asist['fecha']==f) & (asist['tema']==t)].empty
+                    if pres:
+                        canv.setFont("ZapfDingbats", 8); canv.drawCentredString(x_f+w_col/2, y_f+0.15*cm, "4")
+                        t_as += 1
+                    else:
+                        canv.setFont("Helvetica-Bold", 8); canv.drawCentredString(x_f+w_col/2, y_f+0.15*cm, "X")
+                        t_au += 1
+                    x_f += w_col
+                canv.setFont("Helvetica-Bold", 7); canv.rect(x_f, y_f, 1.6*cm, 0.55*cm); canv.drawCentredString(x_f+0.8*cm, y_f+0.15*cm, str(t_as))
+                canv.rect(x_f+1.6*cm, y_f, 1.6*cm, 0.55*cm); canv.drawCentredString(x_f+2.4*cm, y_f+0.15*cm, str(t_au))
                 y_f -= 0.55*cm
-            canv.save(); st.download_button("📥 Descargar Reporte", pdf_io.getvalue(), f"Reporte_{gr}.pdf")
+            canv.save(); st.download_button("📥 Descargar", pdf_io.getvalue(), "Reporte.pdf")
 
-# --- BLOQUE 6: REINICIO Y PANEL PROGRAMADOR ---
+# --- 5. REINICIO Y PROGRAMADOR ---
 elif menu == "⚙️ Reinicio":
     st.subheader("Mantenimiento")
     if st.button("⚠️ LIMPIAR MIS DATOS"):
@@ -220,32 +235,25 @@ elif menu == "⚙️ Reinicio":
         conn.execute("DELETE FROM cursos WHERE profe_id=?", (st.session_state.user,))
         conn.commit(); st.rerun()
 
-    st.markdown("<br><br>", unsafe_allow_html=True)
-    with st.expander("🛠️ Panel de Control Programador"):
+    st.markdown("---")
+    with st.expander("🛠️ Panel Programador"):
         m_k = st.text_input("Clave Master", type="password")
         if m_k == "AdminEdu2026":
-            st.info("🔓 Sesión Administrativa")
             df_u = pd.read_sql("SELECT usuario, nombre, pregunta_seguridad FROM usuarios", conn)
-            st.write("Usuarios Registrados:")
             st.dataframe(df_u)
-            
-            st.markdown("### Resetear Contraseña")
             u_sel = st.selectbox("Usuario:", df_u['usuario'].tolist())
-            n_pass = st.text_input("Nueva clave temporal:", type="password")
-            if st.button("Cambiar Clave"):
-                conn.execute("UPDATE usuarios SET password=? WHERE usuario=?", (hash_password(n_pass), u_sel))
-                conn.commit(); st.success("Cambiado.")
-            
+            n_p = st.text_input("Nueva clave:", type="password")
+            if st.button("Resetear"):
+                conn.execute("UPDATE usuarios SET password=? WHERE usuario=?", (hash_password(n_p), u_sel))
+                conn.commit(); st.success("Listo.")
             if os.path.exists("data/asistencia.db"):
                 with open("data/asistencia.db", "rb") as f:
-                    st.download_button("📥 Descargar Copia .db", f, "backup_asistencia.db")
-            
-            f_res = st.file_uploader("Restaurar desde backup", type=["db"])
-            if f_res and st.button("☢️ RESTAURAR DB"):
-                with open("data/asistencia.db", "wb") as f: f.write(f_res.getbuffer())
-                st.success("Restaurado. Reinicie.")
+                    st.download_button("📥 Backup .db", f, "backup.db")
+            f_r = st.file_uploader("Restaurar", type=["db"])
+            if f_r and st.button("Restaurar DB"):
+                with open("data/asistencia.db", "wb") as f: f.write(f_r.getbuffer())
+                st.success("Reinicie la app.")
 
 if st.sidebar.button("Cerrar Sesión"):
     st.session_state.logueado = False
-    st.session_state.captura_finalizada = False
     st.rerun()
