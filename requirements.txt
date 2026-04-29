@@ -9,3 +9,4 @@ openpyxl
 xlsxwriter
 openpyxl
 streamlit-qrcode-scanner
+supabase
