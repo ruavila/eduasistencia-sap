@@ -11,7 +11,7 @@ from reportlab.lib.pagesizes import landscape, legal
 from reportlab.lib.units import cm
 from streamlit_qrcode_scanner import qrcode_scanner
 
-# Conexión desde tu database.py
+# Conexión desde tu módulo database.py
 from modules.database import supabase, hash_password
 
 # --- CONFIGURACIÓN DE IDENTIDAD ---
@@ -85,7 +85,7 @@ if not st.session_state.logueado:
                             st.error("Respuesta incorrecta.")
     st.stop()
 
-# --- CABECERA DE LA APP ---
+# --- CABECERA DE LA APP (LOGUEADO) ---
 col_esc, col_txt = st.columns([1, 5])
 with col_esc:
     if os.path.exists(ESCUDO_PATH): st.image(ESCUDO_PATH, width=90)
@@ -97,7 +97,7 @@ st.divider()
 # --- NAVEGACIÓN ---
 menu = st.sidebar.radio("Menú Principal", ["📚 Cursos", "👥 Estudiantes", "📸 Scanner QR", "📊 Reportes", "⚙️ Reinicio"])
 
-# --- 1. SECCIÓN CURSOS (CON ELIMINACIÓN) ---
+# --- 1. SECCIÓN CURSOS ---
 if menu == "📚 Cursos":
     st.subheader("Configuración de Cursos")
     with st.expander("➕ Añadir Nuevo Curso"):
@@ -131,31 +131,45 @@ elif menu == "👥 Estudiantes":
         sel_c = st.selectbox("Seleccione el curso:", [f"{c['grado']} | {c['materia']}" for c in cursos])
         g_s, m_s = sel_c.split(" | ")
         f = st.file_uploader("Subir listado Excel (.xlsx)", type=["xlsx"])
+        
         if f and st.button("Generar Carnets QR"):
             df = pd.read_excel(f)
-            pdf = io.BytesIO()
-            canv = canvas.Canvas(pdf, pagesize=landscape(legal))
-            x, y = 1.5*cm, 15*cm
-            for _, r in df.iterrows():
-                doc, nom = str(r['documento']), str(r['nombre']).upper()
-                tel = str(r.get('whatsapp', ''))
-                supabase.table("estudiantes").upsert({
-                    "documento": doc, "nombre": nom, "whatsapp": tel,
-                    "grado": g_s, "materia": m_s, "profe_id": st.session_state.user
-                }).execute()
-                qr = qrcode.make(doc)
-                b = io.BytesIO(); qr.save(b, format='PNG')
-                canv.drawInlineImage(Image.open(b), x, y, 4*cm, 4*cm)
-                canv.setFont("Helvetica-Bold", 8); canv.drawString(x, y-0.5*cm, nom[:20])
-                x += 6.5*cm
-                if x > 30*cm: x, y = 1.5*cm, y-6.5*cm
-            canv.save()
-            st.success("Estudiantes sincronizados con la nube.")
-            st.download_button("📥 Descargar PDF", pdf.getvalue(), f"Carnets_{g_s}.pdf")
+            df.columns = [str(c).lower().strip() for c in df.columns]
+            
+            # Buscador inteligente de columnas
+            col_doc = next((p for p in ['documento', 'codigo', 'cedula', 'id'] if p in df.columns), None)
+            col_nom = next((p for p in ['nombre', 'estudiante', 'alumno'] if p in df.columns), None)
+
+            if col_doc and col_nom:
+                pdf = io.BytesIO()
+                canv = canvas.Canvas(pdf, pagesize=landscape(legal))
+                x, y = 1.5*cm, 15*cm
+                
+                for _, r in df.iterrows():
+                    doc, nom = str(r[col_doc]), str(r[col_nom]).upper()
+                    tel = str(r.get('whatsapp', ''))
+                    
+                    supabase.table("estudiantes").upsert({
+                        "documento": doc, "nombre": nom, "whatsapp": tel,
+                        "grado": g_s, "materia": m_s, "profe_id": st.session_state.user
+                    }).execute()
+                    
+                    qr = qrcode.make(doc)
+                    b = io.BytesIO(); qr.save(b, format='PNG')
+                    canv.drawInlineImage(Image.open(b), x, y, 4*cm, 4*cm)
+                    canv.setFont("Helvetica-Bold", 8); canv.drawString(x, y-0.5*cm, nom[:20])
+                    x += 6.5*cm
+                    if x > 30*cm: x, y = 1.5*cm, y-6.5*cm
+                
+                canv.save()
+                st.success(f"Sincronizado correctamente usando la columna '{col_doc}'")
+                st.download_button("📥 Descargar Carnets PDF", pdf.getvalue(), f"QR_{g_s}.pdf")
+            else:
+                st.error("El Excel debe tener columnas para Identidad (código/documento) y Nombre.")
 
 # --- 3. SECCIÓN SCANNER ---
 elif menu == "📸 Scanner QR":
-    st.subheader("Control de Asistencia Real")
+    st.subheader("Control de Asistencia")
     cursos = supabase.table("cursos").select("*").eq("profe_id", st.session_state.user).execute().data
     if cursos:
         sel_as = st.selectbox("Curso:", [f"{c['grado']} | {c['materia']}" for c in cursos])
@@ -179,7 +193,7 @@ elif menu == "📸 Scanner QR":
                             st.success(f"✅ REGISTRADO: {e['nombre']}")
             else:
                 st.subheader("🔔 Reporte de Ausencia")
-                if st.button("🔄 Seguir Escaneando"):
+                if st.button("🔄 Volver al Scanner"):
                     st.session_state.captura_finalizada = False; st.rerun()
                 total = pd.DataFrame(supabase.table("estudiantes").select("*").eq("grado", ga).eq("profe_id", st.session_state.user).execute().data)
                 hoy = datetime.now().strftime("%Y-%m-%d")
@@ -189,36 +203,28 @@ elif menu == "📸 Scanner QR":
                     c1, c2 = st.columns([3, 1])
                     c1.error(f"❌ {a['nombre']}")
                     if a['whatsapp']:
-                        msg = urllib.parse.quote(f"Cordial saludo. El estudiante {a['nombre']} no asistió hoy a la clase de {ma}. Atentamente, Prof. {st.session_state.profe_nom}.")
+                        msg = urllib.parse.quote(f"Aviso: El estudiante {a['nombre']} no asistió hoy a la clase de {ma}. Prof. {st.session_state.profe_nom}.")
                         c2.markdown(f'<a href="https://wa.me/57{a["whatsapp"]}?text={msg}" target="_blank"><button style="background:#25d366; color:white; border:none; border-radius:5px; padding:5px; width:100%;">📲 Avisar</button></a>', unsafe_allow_html=True)
 
 # --- 4. SECCIÓN REPORTES ---
 elif menu == "📊 Reportes":
-    st.subheader("Planillas de Asistencia")
+    st.subheader("Historial de Asistencia")
     cursos = supabase.table("cursos").select("*").eq("profe_id", st.session_state.user).execute().data
     if cursos:
-        sel_r = st.selectbox("Ver curso:", [f"{c['grado']} | {c['materia']}" for c in cursos])
+        sel_r = st.selectbox("Reporte de:", [f"{c['grado']} | {c['materia']}" for c in cursos])
         gr, mr = sel_r.split(" | ")
-        asist_data = supabase.table("asistencia").select("*, estudiantes(nombre)").eq("grado", gr).eq("profe_id", st.session_state.user).execute().data
-        if asist_data:
-            df_asist = []
-            for d in asist_data:
-                df_asist.append({"Fecha": d['fecha'], "Hora": d['hora'], "Estudiante": d['estudiantes']['nombre'], "Tema": d['tema']})
-            st.dataframe(pd.DataFrame(df_asist))
-        else:
-            st.info("No hay registros de asistencia para este curso.")
+        data = supabase.table("asistencia").select("*, estudiantes(nombre)").eq("grado", gr).eq("profe_id", st.session_state.user).execute().data
+        if data:
+            st.dataframe(pd.DataFrame([{"Fecha": d['fecha'], "Hora": d['hora'], "Estudiante": d['estudiantes']['nombre'], "Tema": d['tema']} for d in data]))
 
 # --- 5. SECCIÓN REINICIO ---
 elif menu == "⚙️ Reinicio":
     st.error("### ⚠️ Zona de Peligro")
-    st.write("Esta acción borrará permanentemente tus cursos y estudiantes de la nube.")
     if st.button("🗑️ ELIMINAR TODOS MIS DATOS"):
         supabase.table("asistencia").delete().eq("profe_id", st.session_state.user).execute()
         supabase.table("estudiantes").delete().eq("profe_id", st.session_state.user).execute()
         supabase.table("cursos").delete().eq("profe_id", st.session_state.user).execute()
-        st.success("Datos eliminados correctamente.")
-        st.rerun()
+        st.success("Limpieza completa"); st.rerun()
 
 if st.sidebar.button("Cerrar Sesión"):
-    st.session_state.logueado = False
-    st.rerun()
+    st.session_state.logueado = False; st.rerun()
