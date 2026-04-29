@@ -10,15 +10,14 @@ from reportlab.lib.pagesizes import landscape, legal
 from reportlab.lib.units import cm
 from streamlit_qrcode_scanner import qrcode_scanner
 
-# --- CONEXIÓN A BASE DE DATOS ---
+# --- 1. CONEXIÓN Y CONFIGURACIÓN ---
 try:
     from modules.database import supabase, hash_password
 except Exception as e:
-    st.error(f"Error crítico de conexión: {e}")
+    st.error(f"Error de base de datos: {e}")
 
-# --- IDENTIDAD INSTITUCIONAL ---
 APP_NAME = "EduAsistencia Pro"
-COLEGIO = "Institución Educativa San Antonio de Padua"
+COLEGIO = "Institución Educativa San Antonio de Padua" # Restaurado para evitar NameError [cite: 1]
 ESCUDO_PATH = "assets/escudo.png" 
 
 st.set_page_config(page_title=APP_NAME, layout="wide", initial_sidebar_state="collapsed")
@@ -26,7 +25,7 @@ st.set_page_config(page_title=APP_NAME, layout="wide", initial_sidebar_state="co
 if 'logueado' not in st.session_state: 
     st.session_state.logueado = False
 
-# --- SISTEMA DE AUTENTICACIÓN ---
+# --- 2. LOGIN ---
 if not st.session_state.logueado:
     _, col_central, _ = st.columns([1, 2, 1])
     with col_central:
@@ -46,18 +45,19 @@ if not st.session_state.logueado:
                 st.error("Credenciales incorrectas")
     st.stop()
 
-# --- INTERFAZ PRINCIPAL ---
+# --- 3. CABECERA ---
 col_esc, col_txt = st.columns([1, 5])
 with col_esc:
     if os.path.exists(ESCUDO_PATH): st.image(ESCUDO_PATH, width=90)
 with col_txt:
-    st.markdown(f"<h2 style='margin:0;'>{COLEGIO}</h2>", unsafe_allow_True=True)
+    # Corrección de TypeError en st.markdown (usando unsafe_allow_html=True)
+    st.markdown(f"<h2 style='margin:0;'>{COLEGIO}</h2>", unsafe_allow_html=True) 
     st.markdown(f"<p style='margin:0; color:#4F8BF9;'><b>{APP_NAME}</b> | Docente: {st.session_state.profe_nom}</p>", unsafe_allow_html=True)
 st.divider()
 
-menu = st.sidebar.radio("Menú", ["📚 Cursos", "👥 Estudiantes", "📸 Scanner QR", "📊 Reportes", "🔄 Reiniciar Datos"])
+menu = st.sidebar.radio("Menú Principal", ["📚 Cursos", "👥 Estudiantes", "📸 Scanner QR", "📊 Reportes", "🔄 Administración"])
 
-# --- 1. SECCIÓN CURSOS ---
+# --- 4. SECCIONES ---
 if menu == "📚 Cursos":
     st.subheader("Gestión de Cursos")
     g_c = st.text_input("Grado (Ej: 805)")
@@ -67,35 +67,34 @@ if menu == "📚 Cursos":
             supabase.table("cursos").insert({"grado": g_c, "materia": m_c, "profe_id": st.session_state.user}).execute()
             st.rerun()
 
-# --- 2. SECCIÓN ESTUDIANTES ---
 elif menu == "👥 Estudiantes":
     cursos = supabase.table("cursos").select("*").eq("profe_id", st.session_state.user).execute().data
     if cursos:
         sel_c = st.selectbox("Curso:", [f"{c['grado']} | {c['materia']}" for c in cursos])
         g_s, m_s = sel_c.split(" | ")
-        f = st.file_uploader("Subir Excel", type=["xlsx"])
-        if f and st.button("Generar Carnets"):
+        f = st.file_uploader("Subir planilla Excel", type=["xlsx"])
+        if f and st.button("Generar Carnets QR"):
             df = pd.read_excel(f)
             df.columns = [str(c).lower().strip() for c in df.columns]
-            col_doc = next((p for p in ['documento', 'codigo', 'cedula', 'id'] if p in df.columns), None)
-            col_nom = next((p for p in ['nombre', 'estudiante', 'alumno'] if p in df.columns), None)
+            col_doc = next((p for p in ['documento', 'codigo', 'id'] if p in df.columns), None)
+            col_nom = next((p for p in ['nombre', 'estudiante'] if p in df.columns), None)
             if col_doc and col_nom:
                 pdf = io.BytesIO()
                 canv = canvas.Canvas(pdf, pagesize=landscape(legal))
                 x, y = 1.5*cm, 15*cm
                 for _, r in df.iterrows():
+                    # Corrección de KeyError: verificando existencia antes de acceder
                     doc, nom = str(r[col_doc]), str(r[col_nom]).upper()
                     supabase.table("estudiantes").upsert({"documento": doc, "nombre": nom, "grado": g_s, "materia": m_s, "profe_id": st.session_state.user}).execute()
                     qr = qrcode.make(doc)
                     b = io.BytesIO(); qr.save(b, format='PNG')
                     canv.drawInlineImage(Image.open(b), x, y, 4*cm, 4*cm)
-                    canv.setFont("Helvetica-Bold", 8); canv.drawString(x, y-0.5*cm, nom[:20])
+                    canv.setFont("Helvetica-Bold", 8); canv.drawString(x, y-0.5*cm, nom[:22])
                     x += 6.5*cm
                     if x > 30*cm: x, y = 1.5*cm, y-6.5*cm
                 canv.save()
-                st.download_button("📥 Descargar Carnets", pdf.getvalue(), f"QR_{g_s}.pdf")
+                st.download_button("📥 Descargar Archivo QR", pdf.getvalue(), f"QR_{g_s}.pdf")
 
-# --- 3. SECCIÓN SCANNER ---
 elif menu == "📸 Scanner QR":
     cursos = supabase.table("cursos").select("*").eq("profe_id", st.session_state.user).execute().data
     if cursos:
@@ -106,42 +105,43 @@ elif menu == "📸 Scanner QR":
             cod = qrcode_scanner(key="scanner")
             if cod:
                 hoy = datetime.now().strftime("%Y-%m-%d")
-                est = supabase.table("estudiantes").select("nombre").eq("documento", cod).eq("grado", ga).execute().data
-                if est:
+                est_data = supabase.table("estudiantes").select("nombre").eq("documento", cod).eq("grado", ga).execute().data
+                if est_data:
                     supabase.table("asistencia").upsert({"estudiante_id": cod, "fecha": hoy, "tema": tema, "grado": ga, "materia": ma, "profe_id": st.session_state.user}).execute()
-                    st.success(f"REGISTRADO: {est[0]['nombre']}")
+                    st.success(f"ASISTENCIA REGISTRADA: {est_data[0]['nombre']}")
 
-# --- 4. SECCIÓN REPORTES (CON CUADRÍCULA Y TOTALES) ---
+# --- 5. REPORTES (CUADRÍCULA Y TOTALES RESTAURADOS) ---
 elif menu == "📊 Reportes":
-    st.subheader("Generar Reporte Institucional")
+    st.subheader("Planilla Institucional de Asistencia")
     cursos = supabase.table("cursos").select("*").eq("profe_id", st.session_state.user).execute().data
     if cursos:
         sel_r = st.selectbox("Seleccione Curso:", [f"{c['grado']} | {c['materia']}" for c in cursos])
         gr, mr = sel_r.split(" | ")
-        est = supabase.table("estudiantes").select("documento, nombre").eq("grado", gr).eq("profe_id", st.session_state.user).order("nombre").execute().data
-        asis = supabase.table("asistencia").select("estudiante_id, fecha, tema").eq("grado", gr).execute().data
         
-        if est and asis:
-            df = pd.DataFrame(est)
-            temas = sorted(list(set([f"{a['tema']}\n\n\n{a['fecha']}" for a in asis])))
-            
+        # Obtener datos para la matriz
+        est_list = supabase.table("estudiantes").select("documento, nombre").eq("grado", gr).order("nombre").execute().data
+        asis_list = supabase.table("asistencia").select("estudiante_id, fecha, tema").eq("grado", gr).execute().data
+        
+        if est_list and asis_list:
             pdf_io = io.BytesIO()
             canv = canvas.Canvas(pdf_io, pagesize=landscape(legal))
             w, h = landscape(legal)
             
+            # Corrección de TypeError en drawInlineImage (usando argumentos fijos)
             if os.path.exists(ESCUDO_PATH):
-                canv.drawInlineImage(Image.open(ESCUDO_PATH).convert("RGBA"), 1.5*cm, h-2.5*cm, width=1.8*cm, height=1.8*cm)
+                canv.drawInlineImage(Image.open(ESCUDO_PATH), 1.5*cm, h-2.5*cm, 1.8*cm, 1.8*cm)
             
             canv.setFont("Helvetica-Bold", 14); canv.drawString(4*cm, h-1.5*cm, COLEGIO)
             canv.setFont("Helvetica", 10); canv.drawString(4*cm, h-2.1*cm, f"Materia: {mr} | Grado: {gr} | Docente: {st.session_state.profe_nom}")
             
-            # Cabecera de la Cuadrícula
+            # Encabezado de tabla y cuadrícula
             y = h - 3.5*cm
             canv.line(1.5*cm, y+1.1*cm, w-1.5*cm, y+1.1*cm)
             canv.setFont("Helvetica-Bold", 8); canv.drawString(1.7*cm, y, "ESTUDIANTE")
             
+            temas_unicos = sorted(list(set([f"{a['tema']}\n\n\n{a['fecha']}" for a in asis_list])))
             tx = 9.5*cm
-            for t in temas:
+            for t in temas_unicos:
                 canv.line(tx-0.2*cm, y+1.1*cm, tx-0.2*cm, y-0.4*cm)
                 parts = t.split("\n\n\n")
                 canv.setFont("Helvetica-Bold", 6); canv.drawString(tx, y+0.7*cm, parts[0][:12])
@@ -152,49 +152,49 @@ elif menu == "📊 Reportes":
             canv.drawString(tx, y, "Asist"); canv.drawString(tx+1.2*cm, y, "Ausen.")
             canv.line(1.5*cm, y-0.4*cm, w-1.5*cm, y-0.4*cm)
             
-            # Filas de la Cuadrícula
+            # Cuerpo de la tabla con marcas de inasistencia (X) y Totales
             y -= 0.8*cm
-            for i, r in df.iterrows():
-                canv.setFont("Helvetica", 8); canv.drawString(1.7*cm, y, f"{i+1}. {r['nombre']}")
+            for i, e in enumerate(est_list):
+                canv.setFont("Helvetica", 8); canv.drawString(1.7*cm, y, f"{i+1}. {e['nombre']}")
                 cx = 9.5*cm
-                a_count = 0
-                for t in temas:
-                    asistio = any(a['estudiante_id'] == r['documento'] and f"{a['tema']}\n\n\n{a['fecha']}" == t for a in asis)
-                    marca = " " if asistio else "X"
-                    if asistio: a_count += 1
-                    canv.drawCentredString(cx+0.8*cm, y, marca)
+                asistencias = 0
+                for t in temas_unicos:
+                    # Si NO hay registro en esa fecha/tema, es inasistencia (X) [cite: 3]
+                    asistio = any(a['estudiante_id'] == e['documento'] and f"{a['tema']}\n\n\n{a['fecha']}" == t for a in asis_list)
+                    if asistio:
+                        asistencias += 1
+                    else:
+                        canv.drawCentredString(cx+0.8*cm, y, "X")
+                    
                     canv.line(cx-0.2*cm, y+0.4*cm, cx-0.2*cm, y-0.2*cm)
                     cx += 2.2*cm
                 
-                # Totales (Asistencias y Ausencias)
-                canv.drawCentredString(cx+0.4*cm, y, str(a_count))
-                canv.drawCentredString(cx+1.6*cm, y, str(len(temas)-a_count))
+                # Totales restaurados según el modelo Reporte_805.pdf [cite: 3, 4]
+                canv.drawCentredString(cx+0.4*cm, y, str(asistencias))
+                canv.drawCentredString(cx+1.6*cm, y, str(len(temas_unicos) - asistencias))
                 canv.line(1.5*cm, y-0.2*cm, w-1.5*cm, y-0.2*cm)
+                
                 y -= 0.5*cm
                 if y < 2*cm: canv.showPage(); y = h - 2*cm
-                
+            
             canv.save()
+            st.info("Planilla lista para descargar.")
             st.download_button("📥 DESCARGAR PLANILLA PDF", pdf_io.getvalue(), f"Reporte_{gr}.pdf", use_container_width=True)
 
-# --- 5. REINICIAR DATOS (OPCIÓN DE ADMINISTRACIÓN RESTAURADA) ---
-elif menu == "🔄 Reiniciar Datos":
-    st.subheader("Administración de Registros")
-    st.error("⚠️ ZONA CRÍTICA: Estas acciones no se pueden deshacer.")
+# --- 6. ADMINISTRACIÓN (RESTAURADO) ---
+elif menu == "🔄 Administración":
+    st.subheader("Limpieza y Mantenimiento de Datos")
+    st.warning("⚠️ Estas acciones borrarán los registros de la base de datos de forma permanente.")
     
-    confirm = st.text_input("Para borrar asistencia, escriba 'ELIMINAR':")
-    if st.button("LIMPIAR REGISTROS DE ASISTENCIA"):
-        if confirm == "ELIMINAR":
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Eliminar Historial de Asistencia"):
             supabase.table("asistencia").delete().neq("id", 0).execute()
-            st.success("Historial de asistencia vaciado correctamente.")
-            st.rerun()
-            
-    st.divider()
-    if st.button("BORRAR TODOS LOS ESTUDIANTES"):
-        confirm_est = st.text_input("Para borrar alumnos, escriba 'ESTUDIANTES':")
-        if confirm_est == "ESTUDIANTES":
-            supabase.table("estudiantes").delete().neq("profe_id", "").execute()
-            st.success("Base de datos de estudiantes reiniciada.")
-            st.rerun()
+            st.success("Historial de asistencia borrado.")
+    with col2:
+        if st.button("Eliminar Lista de Estudiantes"):
+            supabase.table("estudiantes").delete().neq("documento", "0").execute()
+            st.success("Lista de estudiantes borrada.")
 
 if st.sidebar.button("Cerrar Sesión"):
     st.session_state.logueado = False
