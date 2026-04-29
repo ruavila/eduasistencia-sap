@@ -3,7 +3,6 @@ import pandas as pd
 import qrcode
 import io
 import os
-import urllib.parse
 from datetime import datetime
 from PIL import Image
 from reportlab.pdfgen import canvas
@@ -11,29 +10,27 @@ from reportlab.lib.pagesizes import landscape, legal
 from reportlab.lib.units import cm
 from streamlit_qrcode_scanner import qrcode_scanner
 
-# --- CONEXIÓN INTEGRAL ---
+# --- CONEXIÓN ---
 try:
     from modules.database import supabase, hash_password
 except Exception as e:
-    st.error(f"Error de conexión a base de datos: {e}")
+    st.error(f"Error de conexión: {e}")
 
-# --- CONFIGURACIÓN DE IDENTIDAD ---
+# --- CONFIGURACIÓN ---
 APP_NAME = "EduAsistencia Pro"
 COLEGIO = "Institución Educativa San Antonio de Padua"
 ESCUDO_PATH = "assets/escudo.png" 
 
 st.set_page_config(page_title=APP_NAME, layout="wide", initial_sidebar_state="collapsed")
 
-# --- ESTADOS DE SESIÓN ---
 if 'logueado' not in st.session_state: 
     st.session_state.logueado = False
 
-# --- AUTENTICACIÓN ---
+# --- LOGIN ---
 if not st.session_state.logueado:
     _, col_central, _ = st.columns([1, 2, 1])
     with col_central:
-        if os.path.exists(ESCUDO_PATH):
-            st.image(ESCUDO_PATH, width=100)
+        if os.path.exists(ESCUDO_PATH): st.image(ESCUDO_PATH, width=100)
         st.title(APP_NAME)
         st.subheader(COLEGIO)
         u = st.text_input("Usuario ID")
@@ -58,9 +55,9 @@ with col_txt:
     st.markdown(f"<p style='margin:0; color:#4F8BF9;'><b>{APP_NAME}</b> | Docente: {st.session_state.profe_nom}</p>", unsafe_allow_html=True)
 st.divider()
 
-menu = st.sidebar.radio("Menú Principal", ["📚 Cursos", "👥 Estudiantes", "📸 Scanner QR", "📊 Reportes"])
+menu = st.sidebar.radio("Menú", ["📚 Cursos", "👥 Estudiantes", "📸 Scanner QR", "📊 Reportes", "🔄 Reiniciar Datos"])
 
-# --- 1. SECCIÓN CURSOS ---
+# --- 1. CURSOS ---
 if menu == "📚 Cursos":
     st.subheader("Gestión de Cursos")
     g_c = st.text_input("Grado (Ej: 805)")
@@ -70,7 +67,7 @@ if menu == "📚 Cursos":
             supabase.table("cursos").insert({"grado": g_c, "materia": m_c, "profe_id": st.session_state.user}).execute()
             st.rerun()
 
-# --- 2. SECCIÓN ESTUDIANTES ---
+# --- 2. ESTUDIANTES ---
 elif menu == "👥 Estudiantes":
     cursos = supabase.table("cursos").select("*").eq("profe_id", st.session_state.user).execute().data
     if cursos:
@@ -98,14 +95,13 @@ elif menu == "👥 Estudiantes":
                 canv.save()
                 st.download_button("📥 Descargar Carnets", pdf.getvalue(), f"QR_{g_s}.pdf")
 
-# --- 3. SECCIÓN SCANNER ---
+# --- 3. SCANNER ---
 elif menu == "📸 Scanner QR":
-    st.subheader("Control de Asistencia")
     cursos = supabase.table("cursos").select("*").eq("profe_id", st.session_state.user).execute().data
     if cursos:
         sel_as = st.selectbox("Curso:", [f"{c['grado']} | {c['materia']}" for c in cursos])
         ga, ma = sel_as.split(" | ")
-        tema = st.text_input("Tema de hoy:")
+        tema = st.text_input("Tema de la clase:")
         if tema:
             cod = qrcode_scanner(key="scanner")
             if cod:
@@ -113,77 +109,88 @@ elif menu == "📸 Scanner QR":
                 est = supabase.table("estudiantes").select("nombre").eq("documento", cod).eq("grado", ga).execute().data
                 if est:
                     supabase.table("asistencia").upsert({"estudiante_id": cod, "fecha": hoy, "tema": tema, "grado": ga, "materia": ma, "profe_id": st.session_state.user}).execute()
-                    st.success(f"✅ REGISTRADO: {est[0]['nombre']}")
+                    st.success(f"REGISTRADO: {est[0]['nombre']}")
 
-# --- 4. SECCIÓN REPORTES (SÓLO BOTÓN + CUADRÍCULA) ---
+# --- 4. REPORTES (CON TOTALES Y FORMATO PDF) ---
 elif menu == "📊 Reportes":
-    st.subheader("Planilla Institucional")
+    st.subheader("Planilla de Asistencia")
     cursos = supabase.table("cursos").select("*").eq("profe_id", st.session_state.user).execute().data
     if cursos:
-        sel_r = st.selectbox("Seleccione Curso para Reporte:", [f"{c['grado']} | {c['materia']}" for c in cursos])
+        sel_r = st.selectbox("Seleccione Curso:", [f"{c['grado']} | {c['materia']}" for c in cursos])
         gr, mr = sel_r.split(" | ")
+        estudiantes = supabase.table("estudiantes").select("documento, nombre").eq("grado", gr).eq("profe_id", st.session_state.user).order("nombre").execute().data
+        asistencia = supabase.table("asistencia").select("estudiante_id, fecha, tema").eq("grado", gr).execute().data
         
-        # Procesar datos
-        est = supabase.table("estudiantes").select("documento, nombre").eq("grado", gr).eq("profe_id", st.session_state.user).order("nombre").execute().data
-        asis = supabase.table("asistencia").select("estudiante_id, fecha, tema").eq("grado", gr).execute().data
-        
-        if est and asis:
-            df = pd.DataFrame(est)
-            temas = sorted(list(set([f"{a['tema']}\n{a['fecha']}" for a in asis])))
+        if estudiantes and asistencia:
+            # Procesamiento de datos para totales
+            df = pd.DataFrame(estudiantes)
+            temas_lista = sorted(list(set([f"{a['tema']}\n\n\n{a['fecha']}" for a in asistencia])))
             
-            # Crear PDF
             pdf_io = io.BytesIO()
             canv = canvas.Canvas(pdf_io, pagesize=landscape(legal))
             w, h = landscape(legal)
             
-            # Escudo Institucional
+            # Encabezado Institucional
             if os.path.exists(ESCUDO_PATH):
-                img_escudo = Image.open(ESCUDO_PATH).convert("RGBA")
-                canv.drawInlineImage(img_escudo, 1.5*cm, h-2.5*cm, width=1.8*cm, height=1.8*cm)
+                canv.drawInlineImage(Image.open(ESCUDO_PATH).convert("RGBA"), 1.5*cm, h-2.5*cm, width=1.8*cm, height=1.8*cm)
             
             canv.setFont("Helvetica-Bold", 14); canv.drawString(4*cm, h-1.5*cm, COLEGIO)
             canv.setFont("Helvetica", 10); canv.drawString(4*cm, h-2.1*cm, f"Materia: {mr} | Grado: {gr} | Docente: {st.session_state.profe_nom}")
             
-            # Dibujar Cuadrícula
+            # Cabecera de Tabla
             y = h - 3.5*cm
-            canv.line(1.5*cm, y+0.5*cm, w-1.5*cm, y+0.5*cm)
+            canv.line(1.5*cm, y+1.1*cm, w-1.5*cm, y+1.1*cm) # Línea superior
             canv.setFont("Helvetica-Bold", 8); canv.drawString(1.7*cm, y, "ESTUDIANTE")
             
             tx = 9.5*cm
-            for t in temas:
-                canv.line(tx-0.2*cm, y+0.5*cm, tx-0.2*cm, y-0.4*cm)
-                canv.setFont("Helvetica-Bold", 6); canv.drawString(tx, y+0.2*cm, t.split("\n")[0][:12])
-                canv.setFont("Helvetica", 5); canv.drawString(tx, y-0.1*cm, t.split("\n")[1])
+            for t in temas_lista:
+                canv.line(tx-0.2*cm, y+1.1*cm, tx-0.2*cm, y-0.4*cm)
+                canv.setFont("Helvetica-Bold", 6)
+                parts = t.split("\n\n\n")
+                canv.drawString(tx, y+0.7*cm, parts[0][:12]) # Tema
+                canv.setFont("Helvetica", 5)
+                canv.drawString(tx, y, parts[1]) # Fecha
                 tx += 2.2*cm
             
-            canv.line(1.5*cm, y-0.4*cm, w-1.5*cm, y-0.4*cm)
+            canv.setFont("Helvetica-Bold", 7)
+            canv.drawString(tx, y, "Asist"); canv.drawString(tx+1.2*cm, y, "Ausen.")
+            canv.line(1.5*cm, y-0.4*cm, w-1.5*cm, y-0.4*cm) # Línea división cabecera
             
-            # Rellenar Filas
+            # Filas y Totales 
             y -= 0.8*cm
             for i, r in df.iterrows():
-                canv.setFont("Helvetica", 8); canv.drawString(1.7*cm, y, f"{i+1}. {r['nombre'][:40]}")
+                canv.setFont("Helvetica", 8); canv.drawString(1.7*cm, y, f"{i+1}. {r['nombre']}")
                 cx = 9.5*cm
                 a_count = 0
-                for t in temas:
-                    # Lógica de marca: ✔ si asistió, X si faltó
-                    asistio = any(a['estudiante_id'] == r['documento'] and f"{a['tema']}\n{a['fecha']}" == t for a in asis)
-                    marca = "✔" if asistio else "X"
+                for t in temas_lista:
+                    asistio = any(a['estudiante_id'] == r['documento'] and f"{a['tema']}\n\n\n{a['fecha']}" == t for a in asistencia)
+                    marca = " " if asistio else "X" # X para ausencia según reporte
                     if asistio: a_count += 1
-                    
                     canv.drawCentredString(cx+0.8*cm, y, marca)
                     canv.line(cx-0.2*cm, y+0.4*cm, cx-0.2*cm, y-0.2*cm)
                     cx += 2.2*cm
                 
+                # Columnas de Total 
+                canv.drawCentredString(cx+0.4*cm, y, str(a_count))
+                canv.drawCentredString(cx+1.6*cm, y, str(len(temas_lista)-a_count))
                 canv.line(1.5*cm, y-0.2*cm, w-1.5*cm, y-0.2*cm)
                 y -= 0.5*cm
                 if y < 2*cm: canv.showPage(); y = h - 2*cm
                 
             canv.save()
-            st.info("Reporte procesado correctamente.")
             st.download_button("📥 DESCARGAR PLANILLA PDF", pdf_io.getvalue(), f"Reporte_{gr}.pdf", use_container_width=True)
-        else:
-            st.warning("Aún no hay registros de asistencia para este curso.")
 
-if st.sidebar.button("Salir"):
+# --- 5. REINICIAR DATOS (RESTAURADO) ---
+elif menu == "🔄 Reiniciar Datos":
+    st.subheader("Zona de Peligro")
+    st.warning("Esta acción eliminará todos los registros de asistencia del sistema.")
+    confirm = st.text_input("Escriba 'ELIMINAR' para confirmar:")
+    if st.button("BORRAR TODA LA ASISTENCIA"):
+        if confirm == "ELIMINAR":
+            supabase.table("asistencia").delete().neq("id", 0).execute()
+            st.success("Historial de asistencia borrado.")
+            st.rerun()
+
+if st.sidebar.button("Cerrar Sesión"):
     st.session_state.logueado = False
     st.rerun()
