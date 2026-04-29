@@ -1,66 +1,41 @@
-import sqlite3
+import streamlit as st
+from supabase import create_client, Client
 import hashlib
-import os
+
+# --- CONEXIÓN CON SUPABASE ---
+# st.secrets busca automáticamente las llaves que pegaste en el panel de Streamlit Cloud
+try:
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    # Creamos el cliente de conexión a la nube
+    supabase: Client = create_client(url, key)
+except Exception as e:
+    st.error("Error al leer las credenciales de Supabase. Verifica los Secrets en Streamlit Cloud.")
+    st.stop()
 
 def get_connection():
-    """Establece la conexión con la base de datos local en la carpeta data."""
-    if not os.path.exists("data"):
-        os.makedirs("data")
-    return sqlite3.connect("data/asistencia.db", check_same_thread=False)
+    """
+    Retorna el cliente de Supabase. 
+    A diferencia de SQLite, aquí no retornamos una conexión de archivo,
+    sino el objeto cliente para interactuar con la API de Supabase.
+    """
+    return supabase
 
 def hash_password(password):
-    """Encripta las contraseñas para seguridad de los docentes."""
+    """
+    Encripta las contraseñas usando SHA-256 para que no sean 
+    visibles en texto plano en la base de datos.
+    """
     return hashlib.sha256(password.encode()).hexdigest()
 
 def init_db():
-    """Crea la estructura de tablas completa si no existe."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    # Tabla de Usuarios (Docentes)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS usuarios (
-            usuario TEXT PRIMARY KEY,
-            password TEXT,
-            nombre TEXT
-        )
-    """)
-    
-    # Tabla de Cursos
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS cursos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            grado TEXT,
-            materia TEXT,
-            profe_id TEXT
-        )
-    """)
-    
-    # Tabla de Estudiantes
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS estudiantes (
-            documento TEXT PRIMARY KEY,
-            nombre TEXT,
-            whatsapp TEXT,
-            grado TEXT,
-            materia TEXT,
-            profe_id TEXT
-        )
-    """)
-    
-    # Tabla de Asistencia
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS asistencia (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            estudiante_id TEXT,
-            fecha TEXT,
-            hora TEXT,
-            grado TEXT,
-            materia TEXT,
-            tema TEXT,
-            profe_id TEXT
-        )
-    """)
-    
-    conn.commit()
+    """
+    En la arquitectura de Supabase, las tablas se crean desde el panel web 
+    (SQL Editor) para mayor eficiencia y seguridad. 
+    Esta función queda vacía para mantener compatibilidad con el resto del código.
+    """
+    pass
+
+# Exponemos el cliente directamente para facilitar su uso en app.py
+db = supabase
     conn.close()
