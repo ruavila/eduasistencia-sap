@@ -11,15 +11,15 @@ from reportlab.lib.pagesizes import landscape, legal
 from reportlab.lib.units import cm
 from streamlit_qrcode_scanner import qrcode_scanner
 
-# --- IMPORTACIÓN DE MÓDULOS LOCALES ---
+# --- CONEXIÓN A BASE DE DATOS ---
 try:
     from modules.database import supabase, hash_password
 except Exception as e:
-    st.error(f"Error crítico de conexión: {e}")
+    st.error(f"Error de conexión: {e}")
 
 # --- CONFIGURACIÓN DE IDENTIDAD ---
 APP_NAME = "EduAsistencia Pro"
-COLEGIO = "Institución Educativa San Antonio de Padua"
+COLEGIO = "Institución Educativa San Antonio de Padua" [cite: 1]
 ESCUDO_PATH = "assets/escudo.png" 
 
 st.set_page_config(page_title=APP_NAME, layout="wide", initial_sidebar_state="collapsed")
@@ -27,10 +27,8 @@ st.set_page_config(page_title=APP_NAME, layout="wide", initial_sidebar_state="co
 # --- ESTADOS DE SESIÓN ---
 if 'logueado' not in st.session_state: 
     st.session_state.logueado = False
-if 'captura_finalizada' not in st.session_state: 
-    st.session_state.captura_finalizada = False
 
-# --- BLOQUE DE AUTENTICACIÓN ---
+# --- AUTENTICACIÓN ---
 if not st.session_state.logueado:
     _, col_central, _ = st.columns([1, 2, 1])
     with col_central:
@@ -38,7 +36,6 @@ if not st.session_state.logueado:
             st.image(ESCUDO_PATH, width=100)
         st.title(APP_NAME)
         st.subheader(COLEGIO)
-        
         u = st.text_input("Usuario ID")
         p = st.text_input("Contraseña", type="password")
         if st.button("🚀 INGRESAR", use_container_width=True, type="primary"):
@@ -52,7 +49,7 @@ if not st.session_state.logueado:
                 st.error("Credenciales incorrectas")
     st.stop()
 
-# --- CABECERA PRINCIPAL ---
+# --- CABECERA ---
 col_esc, col_txt = st.columns([1, 5])
 with col_esc:
     if os.path.exists(ESCUDO_PATH): st.image(ESCUDO_PATH, width=90)
@@ -61,43 +58,30 @@ with col_txt:
     st.markdown(f"<p style='margin:0; color:#4F8BF9;'><b>{APP_NAME}</b> | Docente: {st.session_state.profe_nom}</p>", unsafe_allow_html=True)
 st.divider()
 
-menu = st.sidebar.radio("Menú Principal", ["📚 Cursos", "👥 Estudiantes", "📸 Scanner QR", "📊 Reportes"])
+menu = st.sidebar.radio("Menú", ["📚 Cursos", "👥 Estudiantes", "📸 Scanner QR", "📊 Reportes"])
 
-# --- 1. SECCIÓN CURSOS ---
+# --- 1. CURSOS ---
 if menu == "📚 Cursos":
     st.subheader("Gestión de Cursos")
-    with st.expander("➕ Añadir Nuevo Curso"):
-        g_c = st.text_input("Grado (Ej: 805)")
-        m_c = st.text_input("Asignatura")
-        if st.button("Guardar Curso"):
-            if g_c and m_c:
-                supabase.table("cursos").insert({"grado": g_c, "materia": m_c, "profe_id": st.session_state.user}).execute()
-                st.rerun()
+    g_c = st.text_input("Grado (Ej: 805)")
+    m_c = st.text_input("Asignatura")
+    if st.button("Guardar Curso"):
+        if g_c and m_c:
+            supabase.table("cursos").insert({"grado": g_c, "materia": m_c, "profe_id": st.session_state.user}).execute()
+            st.rerun()
 
-    data_c = supabase.table("cursos").select("*").eq("profe_id", st.session_state.user).execute().data
-    if data_c:
-        for c in data_c:
-            col1, col2 = st.columns([5, 1])
-            col1.info(f"**{c['grado']}** - {c['materia']}")
-            if col2.button("🗑️", key=f"del_{c['id']}"):
-                supabase.table("cursos").delete().eq("id", c['id']).execute()
-                st.rerun()
-
-# --- 2. SECCIÓN ESTUDIANTES ---
+# --- 2. ESTUDIANTES ---
 elif menu == "👥 Estudiantes":
-    st.subheader("Carga y Carnetización")
     cursos = supabase.table("cursos").select("*").eq("profe_id", st.session_state.user).execute().data
     if cursos:
-        sel_c = st.selectbox("Seleccione el curso para cargar alumnos:", [f"{c['grado']} | {c['materia']}" for c in cursos])
+        sel_c = st.selectbox("Curso:", [f"{c['grado']} | {c['materia']}" for c in cursos])
         g_s, m_s = sel_c.split(" | ")
-        f = st.file_uploader("Subir archivo Excel de alumnos", type=["xlsx"])
-        
-        if f and st.button("Generar Carnets y Sincronizar"):
+        f = st.file_uploader("Subir Excel", type=["xlsx"])
+        if f and st.button("Generar Carnets"):
             df = pd.read_excel(f)
             df.columns = [str(c).lower().strip() for c in df.columns]
             col_doc = next((p for p in ['documento', 'codigo', 'cedula', 'id'] if p in df.columns), None)
             col_nom = next((p for p in ['nombre', 'estudiante', 'alumno'] if p in df.columns), None)
-
             if col_doc and col_nom:
                 pdf = io.BytesIO()
                 canv = canvas.Canvas(pdf, pagesize=landscape(legal))
@@ -112,108 +96,93 @@ elif menu == "👥 Estudiantes":
                     x += 6.5*cm
                     if x > 30*cm: x, y = 1.5*cm, y-6.5*cm
                 canv.save()
-                st.success("Estudiantes cargados correctamente."); st.download_button("📥 Descargar Carnets QR", pdf.getvalue(), f"QR_{g_s}.pdf")
-            else:
-                st.error("El Excel debe tener columnas llamadas 'codigo' (o documento) y 'nombre'.")
+                st.download_button("📥 Descargar Carnets", pdf.getvalue(), f"QR_{g_s}.pdf")
 
-# --- 3. SECCIÓN SCANNER ---
+# --- 3. SCANNER ---
 elif menu == "📸 Scanner QR":
-    st.subheader("Control de Asistencia en Tiempo Real")
     cursos = supabase.table("cursos").select("*").eq("profe_id", st.session_state.user).execute().data
     if cursos:
-        sel_as = st.selectbox("Curso actual:", [f"{c['grado']} | {c['materia']}" for c in cursos])
+        sel_as = st.selectbox("Curso:", [f"{c['grado']} | {c['materia']}" for c in cursos])
         ga, ma = sel_as.split(" | ")
-        tema = st.text_input("Tema de la sesión:")
+        tema = st.text_input("Tema de la clase:")
         if tema:
             cod = qrcode_scanner(key="scanner")
             if cod:
                 hoy = datetime.now().strftime("%Y-%m-%d")
                 est = supabase.table("estudiantes").select("nombre").eq("documento", cod).eq("grado", ga).execute().data
                 if est:
-                    check = supabase.table("asistencia").select("*").eq("estudiante_id", cod).eq("fecha", hoy).eq("tema", tema).execute().data
-                    if not check:
-                        supabase.table("asistencia").insert({"estudiante_id": cod, "fecha": hoy, "hora": datetime.now().strftime("%H:%M:%S"), "grado": ga, "materia": ma, "tema": tema, "profe_id": st.session_state.user}).execute()
-                        st.markdown(f"""<div style="background-color:#d4edda; color:#155724; padding:20px; border-radius:10px; text-align:center; border:2px solid #c3e6cb;">
-                            <h1 style="margin:0;">✅ ASISTENCIA REGISTRADA</h1>
-                            <p style="font-size:28px; margin:10px 0 0 0;"><b>{est[0]['nombre']}</b></p>
-                        </div>""", unsafe_allow_html=True)
+                    supabase.table("asistencia").upsert({"estudiante_id": cod, "fecha": hoy, "tema": tema, "grado": ga, "materia": ma, "profe_id": st.session_state.user}).execute()
+                    st.success(f"ASISTENCIA REGISTRADA: {est[0]['nombre']}")
 
-# --- 4. SECCIÓN REPORTES (SÓLO BOTÓN DE DESCARGA + CUADRÍCULA) ---
+# --- 4. REPORTES (SÓLO BOTÓN + CUADRÍCULA PROFESIONAL) ---
 elif menu == "📊 Reportes":
-    st.subheader("Generación de Planillas PDF")
+    st.subheader("Generar Reporte Institucional")
     cursos = supabase.table("cursos").select("*").eq("profe_id", st.session_state.user).execute().data
     if cursos:
-        sel_r = st.selectbox("Seleccione el curso para exportar:", [f"{c['grado']} | {c['materia']}" for c in cursos])
+        sel_r = st.selectbox("Seleccione Curso:", [f"{c['grado']} | {c['materia']}" for c in cursos])
         gr, mr = sel_r.split(" | ")
         
-        # Procesar datos en segundo plano
-        estudiantes = supabase.table("estudiantes").select("documento, nombre").eq("grado", gr).eq("profe_id", st.session_state.user).order("nombre").execute().data
-        asistencia = supabase.table("asistencia").select("estudiante_id, fecha, tema").eq("grado", gr).execute().data
+        est = supabase.table("estudiantes").select("documento, nombre").eq("grado", gr).eq("profe_id", st.session_state.user).order("nombre").execute().data
+        asis = supabase.table("asistencia").select("estudiante_id, fecha, tema").eq("grado", gr).execute().data
         
-        if estudiantes and asistencia:
-            st.info(f"Presione el botón para generar la planilla de {gr} con el formato institucional.")
-            
-            # Lógica del PDF
+        if est and asis:
+            df = pd.DataFrame(est)
+            temas = sorted(list(set([f"{a['tema']}\n{a['fecha']}" for a in asis])))
+            for t in temas: df[t] = "X" # Inasistencia por defecto
+            for a in asis:
+                df.loc[df['documento'] == a['estudiante_id'], f"{a['tema']}\n{a['fecha']}"] = "✔" # Asistencia
+
+            # GENERACIÓN DEL PDF
             pdf_io = io.BytesIO()
             canv = canvas.Canvas(pdf_io, pagesize=landscape(legal))
             w, h = landscape(legal)
             
-            # Escudo transparente
+            # Escudo con fijación de error de transparencia y tipos
             if os.path.exists(ESCUDO_PATH):
-                canv.drawInlineImage(Image.open(ESCUDO_PATH), 1.5*cm, h-2.6*cm, width=1.8*cm, height=1.8*cm, preserveAspectRatio=True, mask='auto')
+                img_escudo = Image.open(ESCUDO_PATH).convert("RGBA")
+                canv.drawInlineImage(img_escudo, 1.5*cm, h-2.5*cm, width=1.8*cm, height=1.8*cm)
             
             canv.setFont("Helvetica-Bold", 14); canv.drawString(4*cm, h-1.5*cm, COLEGIO)
-            canv.setFont("Helvetica", 10); canv.drawString(4*cm, h-2.2*cm, f"Materia: {mr} | Grado: {gr} | Docente: {st.session_state.profe_nom}")
+            canv.setFont("Helvetica", 10); canv.drawString(4*cm, h-2.1*cm, f"Materia: {mr} | Grado: {gr} | Docente: {st.session_state.profe_nom}")
             
-            # Preparar Matriz
-            df = pd.DataFrame(estudiantes)
-            temas_lista = sorted(list(set([f"{a['tema']}\n{a['fecha']}" for a in asistencia])))
-            for t in temas_lista: df[t] = "X"
-            for a in asistencia:
-                df.loc[df['documento'] == a['estudiante_id'], f"{a['tema']}\n{a['fecha']}"] = "✔"
+            # Cabecera de Tabla y Cuadrícula
+            y = h - 3.5*cm
+            canv.line(1.5*cm, y+0.5*cm, w-1.5*cm, y+0.5*cm) # Línea superior
+            canv.setFont("Helvetica-Bold", 8); canv.drawString(1.7*cm, y, "ESTUDIANTE")
             
-            # Dibujar Encabezado de Tabla y Cuadrícula
-            y_start = h - 3.8*cm
-            canv.line(1.5*cm, y_start + 0.6*cm, w-1.5*cm, y_start + 0.6*cm) # Línea superior
-            canv.setFont("Helvetica-Bold", 8); canv.drawString(1.7*cm, y_start, "NOMBRES Y APELLIDOS")
-            
-            tx = 10*cm
-            for t in temas_lista:
-                canv.line(tx - 0.2*cm, y_start + 0.6*cm, tx - 0.2*cm, y_start - 0.4*cm) # Línea vertical tema
-                canv.setFont("Helvetica-Bold", 6); canv.drawString(tx, y_start + 0.2*cm, t.split("\n")[0][:15])
-                canv.setFont("Helvetica", 5); canv.drawString(tx, y_start - 0.1*cm, t.split("\n")[1])
+            tx = 9.5*cm
+            for t in temas:
+                canv.line(tx-0.2*cm, y+0.5*cm, tx-0.2*cm, y-0.4*cm) # Vertical
+                canv.setFont("Helvetica-Bold", 6); canv.drawString(tx, y+0.2*cm, t.split("\n")[0][:12])
+                canv.setFont("Helvetica", 5); canv.drawString(tx, y-0.1*cm, t.split("\n")[1])
                 tx += 2.2*cm
             
-            canv.drawString(tx, y_start, "ASIST."); canv.drawString(tx + 1.5*cm, y_start, "AUSEN.")
-            canv.line(1.5*cm, y_start - 0.4*cm, w-1.5*cm, y_start - 0.4*cm) # Línea división cabecera
+            canv.drawString(tx, y, "Asist."); canv.drawString(tx+1.2*cm, y, "Ausen.")
+            canv.line(1.5*cm, y-0.4*cm, w-1.5*cm, y-0.4*cm) # Línea división cabecera
             
-            # Filas de la cuadrícula
-            y = y_start - 0.9*cm
+            y -= 0.8*cm
             for i, r in df.iterrows():
-                canv.setFont("Helvetica", 8); canv.drawString(1.7*cm, y, f"{i+1}. {r['nombre']}")
-                
-                cx = 10*cm
-                asist_count = 0
-                for t in temas_lista:
-                    mark = r[t]
-                    canv.drawCentredString(cx + 0.8*cm, y, mark)
-                    canv.line(cx - 0.2*cm, y + 0.5*cm, cx - 0.2*cm, y - 0.2*cm) # Verticales celdas
-                    if mark == "✔": asist_count += 1
+                canv.setFont("Helvetica", 8); canv.drawString(1.7*cm, y, f"{i+1}. {r['nombre'][:40]}")
+                cx = 9.5*cm
+                a_count = 0
+                for t in temas:
+                    canv.drawCentredString(cx+0.8*cm, y, r[t])
+                    canv.line(cx-0.2*cm, y+0.4*cm, cx-0.2*cm, y-0.2*cm)
+                    if r[t] == "✔": a_count += 1
                     cx += 2.2*cm
                 
-                canv.drawCentredString(cx + 0.4*cm, y, str(asist_count))
-                canv.drawCentredString(cx + 1.8*cm, y, str(len(temas_lista) - asist_count))
-                canv.line(1.5*cm, y - 0.2*cm, w-1.5*cm, y - 0.2*cm) # Horizontal inferior de la fila
+                canv.drawCentredString(cx+0.4*cm, y, str(a_count))
+                canv.drawCentredString(cx+1.6*cm, y, str(len(temas)-a_count))
+                canv.line(1.5*cm, y-0.2*cm, w-1.5*cm, y-0.2*cm) # Línea de fila
+                y -= 0.5*cm
+                if y < 2*cm: canv.showPage(); y = h - 2*cm
                 
-                y -= 0.6*cm
-                if y < 2*cm:
-                    canv.showPage(); y = h - 2*cm
-            
             canv.save()
-            st.download_button(label="✅ DESCARGAR PLANILLA PDF", data=pdf_io.getvalue(), file_name=f"Planilla_{gr}_{mr}.pdf", mime="application/pdf", use_container_width=True)
+            st.info("Planilla lista para descarga.")
+            st.download_button("📥 DESCARGAR PLANILLA PDF", pdf_io.getvalue(), f"Reporte_{gr}.pdf", use_container_width=True)
         else:
-            st.warning("No hay datos suficientes (estudiantes o asistencia) para generar el reporte.")
+            st.warning("No hay datos para este reporte.")
 
-if st.sidebar.button("Cerrar Sesión"):
+if st.sidebar.button("Salir"):
     st.session_state.logueado = False
     st.rerun()
