@@ -16,7 +16,7 @@ from modules.database import supabase, hash_password
 
 # --- CONFIGURACIÓN DE IDENTIDAD ---
 APP_NAME = "EduAsistencia Pro"
-COLEGIO = "I.E. San Antonio de Padua"
+COLEGIO = "Institución Educativa San Antonio de Padua"
 ESCUDO_PATH = "assets/escudo.png" 
 
 st.set_page_config(page_title=APP_NAME, layout="wide", initial_sidebar_state="collapsed")
@@ -85,32 +85,53 @@ if not st.session_state.logueado:
                             st.error("Respuesta incorrecta.")
     st.stop()
 
-# --- INTERFAZ PRINCIPAL ---
-st.sidebar.title(f"Hola, {st.session_state.profe_nom}")
-menu = st.sidebar.radio("Navegación", ["📚 Cursos", "👥 Estudiantes", "📸 Scanner QR", "📊 Reportes", "⚙️ Reinicio"])
+# --- CABECERA DE LA APP ---
+col_esc, col_txt = st.columns([1, 5])
+with col_esc:
+    if os.path.exists(ESCUDO_PATH): st.image(ESCUDO_PATH, width=90)
+with col_txt:
+    st.markdown(f"<h2 style='margin:0;'>{COLEGIO}</h2>", unsafe_allow_html=True)
+    st.markdown(f"<p style='margin:0; color:#4F8BF9;'><b>{APP_NAME}</b> | Docente: {st.session_state.profe_nom}</p>", unsafe_allow_html=True)
+st.divider()
 
-# --- 1. CURSOS ---
+# --- NAVEGACIÓN ---
+menu = st.sidebar.radio("Menú Principal", ["📚 Cursos", "👥 Estudiantes", "📸 Scanner QR", "📊 Reportes", "⚙️ Reinicio"])
+
+# --- 1. SECCIÓN CURSOS (CON ELIMINACIÓN) ---
 if menu == "📚 Cursos":
-    st.header("Mis Cursos")
-    g_c = st.text_input("Grado (ej: 601)")
-    m_c = st.text_input("Asignatura")
-    if st.button("Añadir"):
-        supabase.table("cursos").insert({"grado": g_c, "materia": m_c, "profe_id": st.session_state.user}).execute()
-        st.rerun()
-    
+    st.subheader("Configuración de Cursos")
+    with st.expander("➕ Añadir Nuevo Curso"):
+        g_c = st.text_input("Grado (Ej: 801)")
+        m_c = st.text_input("Asignatura")
+        if st.button("Guardar Curso"):
+            if g_c and m_c:
+                supabase.table("cursos").insert({"grado": g_c, "materia": m_c, "profe_id": st.session_state.user}).execute()
+                st.success("Curso añadido")
+                st.rerun()
+
+    st.write("### Mis Cursos Actuales")
     data_c = supabase.table("cursos").select("*").eq("profe_id", st.session_state.user).execute().data
     if data_c:
-        st.table(pd.DataFrame(data_c)[['grado', 'materia']])
+        for c in data_c:
+            col1, col2 = st.columns([5, 1])
+            col1.info(f"**{c['grado']}** - {c['materia']}")
+            if col2.button("🗑️", key=f"del_{c['id']}"):
+                supabase.table("cursos").delete().eq("id", c['id']).execute()
+                st.rerun()
+    else:
+        st.info("No tienes cursos creados.")
 
-# --- 2. ESTUDIANTES ---
+# --- 2. SECCIÓN ESTUDIANTES ---
 elif menu == "👥 Estudiantes":
-    st.header("Carga de Alumnos")
+    st.subheader("Carga y Carnetización")
     cursos = supabase.table("cursos").select("*").eq("profe_id", st.session_state.user).execute().data
-    if cursos:
-        sel = st.selectbox("Curso:", [f"{c['grado']} - {c['materia']}" for c in cursos])
-        g_s, m_s = sel.split(" - ")
-        f = st.file_uploader("Subir Excel", type=["xlsx"])
-        if f and st.button("Procesar Estudiantes"):
+    if not cursos:
+        st.warning("Debes crear un curso primero.")
+    else:
+        sel_c = st.selectbox("Seleccione el curso:", [f"{c['grado']} | {c['materia']}" for c in cursos])
+        g_s, m_s = sel_c.split(" | ")
+        f = st.file_uploader("Subir listado Excel (.xlsx)", type=["xlsx"])
+        if f and st.button("Generar Carnets QR"):
             df = pd.read_excel(f)
             pdf = io.BytesIO()
             canv = canvas.Canvas(pdf, pagesize=landscape(legal))
@@ -125,24 +146,24 @@ elif menu == "👥 Estudiantes":
                 qr = qrcode.make(doc)
                 b = io.BytesIO(); qr.save(b, format='PNG')
                 canv.drawInlineImage(Image.open(b), x, y, 4*cm, 4*cm)
-                canv.drawString(x, y-0.5*cm, nom[:18])
-                x += 6*cm
-                if x > 30*cm: x, y = 1.5*cm, y-6*cm
+                canv.setFont("Helvetica-Bold", 8); canv.drawString(x, y-0.5*cm, nom[:20])
+                x += 6.5*cm
+                if x > 30*cm: x, y = 1.5*cm, y-6.5*cm
             canv.save()
-            st.success("Guardados en la nube.")
-            st.download_button("📥 Carnets PDF", pdf.getvalue(), f"QR_{g_s}.pdf")
+            st.success("Estudiantes sincronizados con la nube.")
+            st.download_button("📥 Descargar PDF", pdf.getvalue(), f"Carnets_{g_s}.pdf")
 
-# --- 3. SCANNER ---
+# --- 3. SECCIÓN SCANNER ---
 elif menu == "📸 Scanner QR":
-    st.header("Toma de Asistencia")
+    st.subheader("Control de Asistencia Real")
     cursos = supabase.table("cursos").select("*").eq("profe_id", st.session_state.user).execute().data
     if cursos:
-        sel_as = st.selectbox("Curso actual:", [f"{c['grado']} - {c['materia']}" for c in cursos])
-        ga, ma = sel_as.split(" - ")
-        tema = st.text_input("Tema de hoy:")
+        sel_as = st.selectbox("Curso:", [f"{c['grado']} | {c['materia']}" for c in cursos])
+        ga, ma = sel_as.split(" | ")
+        tema = st.text_input("Tema de la clase:")
         if tema:
             if not st.session_state.captura_finalizada:
-                if st.button("⏹️ Ver Ausentes", type="primary"):
+                if st.button("⏹️ Finalizar y Ver Ausentes", type="primary"):
                     st.session_state.captura_finalizada = True; st.rerun()
                 cod = qrcode_scanner(key="scanner")
                 if cod:
@@ -155,12 +176,11 @@ elif menu == "📸 Scanner QR":
                                 "estudiante_id": cod, "fecha": hoy, "hora": datetime.now().strftime("%H:%M:%S"),
                                 "grado": ga, "materia": ma, "tema": tema, "profe_id": st.session_state.user
                             }).execute()
-                            st.success(f"Registrado: {e['nombre']}")
+                            st.success(f"✅ REGISTRADO: {e['nombre']}")
             else:
-                st.subheader("🔔 Estudiantes Faltantes")
+                st.subheader("🔔 Reporte de Ausencia")
                 if st.button("🔄 Seguir Escaneando"):
                     st.session_state.captura_finalizada = False; st.rerun()
-                # Lógica de ausentes
                 total = pd.DataFrame(supabase.table("estudiantes").select("*").eq("grado", ga).eq("profe_id", st.session_state.user).execute().data)
                 hoy = datetime.now().strftime("%Y-%m-%d")
                 pres = [p['estudiante_id'] for p in supabase.table("asistencia").select("estudiante_id").eq("fecha", hoy).eq("tema", tema).execute().data]
@@ -169,29 +189,36 @@ elif menu == "📸 Scanner QR":
                     c1, c2 = st.columns([3, 1])
                     c1.error(f"❌ {a['nombre']}")
                     if a['whatsapp']:
-                        msg = urllib.parse.quote(f"Aviso: Estudiante {a['nombre']} no asistió hoy a {ma}.")
-                        c2.markdown(f'[📲 WA](https://wa.me/57{a["whatsapp"]}?text={msg})', unsafe_allow_html=True)
+                        msg = urllib.parse.quote(f"Cordial saludo. El estudiante {a['nombre']} no asistió hoy a la clase de {ma}. Atentamente, Prof. {st.session_state.profe_nom}.")
+                        c2.markdown(f'<a href="https://wa.me/57{a["whatsapp"]}?text={msg}" target="_blank"><button style="background:#25d366; color:white; border:none; border-radius:5px; padding:5px; width:100%;">📲 Avisar</button></a>', unsafe_allow_html=True)
 
-# --- 4. REPORTES ---
+# --- 4. SECCIÓN REPORTES ---
 elif menu == "📊 Reportes":
-    st.header("Planillas")
+    st.subheader("Planillas de Asistencia")
     cursos = supabase.table("cursos").select("*").eq("profe_id", st.session_state.user).execute().data
     if cursos:
-        sel_r = st.selectbox("Reporte de:", [f"{c['grado']} - {c['materia']}" for c in cursos])
-        gr, mr = sel_r.split(" - ")
-        hoy = datetime.now().strftime("%Y-%m-%d")
-        data = supabase.table("asistencia").select("estudiante_id, hora, estudiantes(nombre)").eq("fecha", hoy).eq("grado", gr).execute().data
-        if data:
-            st.table([{"Hora": d['hora'], "Estudiante": d['estudiantes']['nombre']} for d in data])
+        sel_r = st.selectbox("Ver curso:", [f"{c['grado']} | {c['materia']}" for c in cursos])
+        gr, mr = sel_r.split(" | ")
+        asist_data = supabase.table("asistencia").select("*, estudiantes(nombre)").eq("grado", gr).eq("profe_id", st.session_state.user).execute().data
+        if asist_data:
+            df_asist = []
+            for d in asist_data:
+                df_asist.append({"Fecha": d['fecha'], "Hora": d['hora'], "Estudiante": d['estudiantes']['nombre'], "Tema": d['tema']})
+            st.dataframe(pd.DataFrame(df_asist))
+        else:
+            st.info("No hay registros de asistencia para este curso.")
 
-# --- 5. REINICIO ---
+# --- 5. SECCIÓN REINICIO ---
 elif menu == "⚙️ Reinicio":
-    st.warning("Zona de peligro")
-    if st.button("🗑️ Borrar mis datos (Cursos y Alumnos)"):
+    st.error("### ⚠️ Zona de Peligro")
+    st.write("Esta acción borrará permanentemente tus cursos y estudiantes de la nube.")
+    if st.button("🗑️ ELIMINAR TODOS MIS DATOS"):
         supabase.table("asistencia").delete().eq("profe_id", st.session_state.user).execute()
         supabase.table("estudiantes").delete().eq("profe_id", st.session_state.user).execute()
         supabase.table("cursos").delete().eq("profe_id", st.session_state.user).execute()
-        st.success("Limpieza completa"); st.rerun()
+        st.success("Datos eliminados correctamente.")
+        st.rerun()
 
-if st.sidebar.button("Salir"):
-    st.session_state.logueado = False; st.rerun()
+if st.sidebar.button("Cerrar Sesión"):
+    st.session_state.logueado = False
+    st.rerun()
