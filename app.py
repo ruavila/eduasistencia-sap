@@ -11,7 +11,7 @@ from reportlab.lib.pagesizes import landscape, legal
 from reportlab.lib.units import cm
 from streamlit_qrcode_scanner import qrcode_scanner
 
-# Importación de conexión y seguridad desde tu módulo local
+# Importación de conexión y seguridad
 from modules.database import supabase, hash_password
 
 # --- CONFIGURACIÓN DE IDENTIDAD ---
@@ -66,23 +66,6 @@ if not st.session_state.logueado:
                     }
                     supabase.table("usuarios").insert(data).execute()
                     st.success("¡Registrado! Ya puedes entrar.")
-                else:
-                    st.warning("Faltan datos")
-
-        with tab_rec:
-            u_rec = st.text_input("Usuario a recuperar:")
-            if u_rec:
-                res_u = supabase.table("usuarios").select("*").eq("usuario", u_rec).execute()
-                if res_u.data:
-                    st.write(f"**Pregunta:** {res_u.data[0]['pregunta_seguridad']}")
-                    r_int = st.text_input("Respuesta:", type="password")
-                    np_rec = st.text_input("Nueva Contraseña:", type="password")
-                    if st.button("🔓 CAMBIAR CLAVE"):
-                        if r_int.strip().lower() == res_u.data[0]['respuesta_seguridad']:
-                            supabase.table("usuarios").update({"password": hash_password(np_rec)}).eq("usuario", u_rec).execute()
-                            st.success("Clave actualizada.")
-                        else:
-                            st.error("Respuesta incorrecta.")
     st.stop()
 
 # --- CABECERA PRINCIPAL ---
@@ -100,12 +83,11 @@ menu = st.sidebar.radio("Menú Principal", ["📚 Cursos", "👥 Estudiantes", "
 if menu == "📚 Cursos":
     st.subheader("Gestión de Cursos")
     with st.expander("➕ Añadir Nuevo Curso"):
-        g_c = st.text_input("Grado (Ej: 805)")
+        g_c = st.text_input("Grado")
         m_c = st.text_input("Asignatura")
         if st.button("Guardar Curso"):
             if g_c and m_c:
                 supabase.table("cursos").insert({"grado": g_c, "materia": m_c, "profe_id": st.session_state.user}).execute()
-                st.success("Curso creado")
                 st.rerun()
 
     data_c = supabase.table("cursos").select("*").eq("profe_id", st.session_state.user).execute().data
@@ -119,7 +101,7 @@ if menu == "📚 Cursos":
 
 # --- 2. SECCIÓN ESTUDIANTES ---
 elif menu == "👥 Estudiantes":
-    st.subheader("Carga y Carnetización")
+    st.subheader("Carga de Alumnos")
     cursos = supabase.table("cursos").select("*").eq("profe_id", st.session_state.user).execute().data
     if cursos:
         sel_c = st.selectbox("Curso:", [f"{c['grado']} | {c['materia']}" for c in cursos])
@@ -148,7 +130,7 @@ elif menu == "👥 Estudiantes":
                 canv.save()
                 st.success("Sincronizado."); st.download_button("📥 Descargar PDF", pdf.getvalue(), f"QR_{g_s}.pdf")
 
-# --- 3. SECCIÓN SCANNER (CON VISTO BUENO) ---
+# --- 3. SECCIÓN SCANNER ---
 elif menu == "📸 Scanner QR":
     st.subheader("Control de Asistencia")
     cursos = supabase.table("cursos").select("*").eq("profe_id", st.session_state.user).execute().data
@@ -158,7 +140,7 @@ elif menu == "📸 Scanner QR":
         tema = st.text_input("Tema de hoy:")
         if tema:
             if not st.session_state.captura_finalizada:
-                if st.button("⏹️ Ver Ausentes", type="primary"):
+                if st.button("⏹️ Finalizar Sesión", type="primary"):
                     st.session_state.captura_finalizada = True; st.rerun()
                 
                 cod = qrcode_scanner(key="scanner")
@@ -169,26 +151,10 @@ elif menu == "📸 Scanner QR":
                         check = supabase.table("asistencia").select("*").eq("estudiante_id", cod).eq("fecha", hoy).eq("tema", tema).execute().data
                         if not check:
                             supabase.table("asistencia").insert({"estudiante_id": cod, "fecha": hoy, "hora": datetime.now().strftime("%H:%M:%S"), "grado": ga, "materia": ma, "tema": tema, "profe_id": st.session_state.user}).execute()
-                            # VISTO BUENO VISUAL
-                            st.markdown(f"""<div style="background-color:#d4edda; color:#155724; padding:20px; border-radius:10px; border:2px solid #c3e6cb; text-align:center;">
-                                <h1 style="margin:0;">✅ ASISTENCIA REGISTRADA</h1>
-                                <p style="font-size:24px; margin:10px 0 0 0;"><b>{e['nombre']}</b></p>
-                            </div>""", unsafe_allow_html=True)
-            else:
-                st.subheader("🔔 Ausentes")
-                if st.button("🔄 Volver al Scanner"):
-                    st.session_state.captura_finalizada = False; st.rerun()
-                total = pd.DataFrame(supabase.table("estudiantes").select("*").eq("grado", ga).eq("profe_id", st.session_state.user).execute().data)
-                pres = [p['estudiante_id'] for p in supabase.table("asistencia").select("estudiante_id").eq("fecha", hoy).eq("tema", tema).execute().data]
-                aus = total[~total['documento'].isin(pres)]
-                for _, a in aus.iterrows():
-                    c1, c2 = st.columns([4, 1])
-                    c1.error(f"❌ {a['nombre']}")
-                    if a['whatsapp']:
-                        msg = urllib.parse.quote(f"Aviso: {a['nombre']} no asistió hoy a {ma}.")
-                        c2.markdown(f'<a href="https://wa.me/57{a["whatsapp"]}?text={msg}" target="_blank"><button style="background:#25d366; color:white; border:none; padding:5px; border-radius:5px;">📲 WA</button></a>', unsafe_allow_html=True)
+                            st.markdown(f"""<div style="background-color:#d4edda; color:#155724; padding:20px; border-radius:10px; text-align:center;">
+                                <h1>✅ ASISTENCIA REGISTRADA</h1><p style="font-size:24px;"><b>{e['nombre']}</b></p></div>""", unsafe_allow_html=True)
 
-# --- 4. SECCIÓN REPORTES (FORMATO MATRICIAL) ---
+# --- 4. SECCIÓN REPORTES (FORMATO MATRICIAL CON CUADRÍCULA) ---
 elif menu == "📊 Reportes":
     st.subheader("Planillas Institucionales")
     cursos = supabase.table("cursos").select("*").eq("profe_id", st.session_state.user).execute().data
@@ -201,44 +167,57 @@ elif menu == "📊 Reportes":
         if estudiantes and asistencia:
             df = pd.DataFrame(estudiantes)
             temas = sorted(list(set([f"{a['tema']}\n{a['fecha']}" for a in asistencia])))
-            for t in temas: df[t] = ""
+            for t in temas: df[t] = "X" # Por defecto Ausente
             for a in asistencia:
                 col = f"{a['tema']}\n{a['fecha']}"
-                df.loc[df['documento'] == a['estudiante_id'], col] = "X"
+                df.loc[df['documento'] == a['estudiante_id'], col] = "✔" # Asistió
             
-            df["Asist."] = df[temas].apply(lambda x: x.str.contains("X").sum(), axis=1)
+            df["Asist."] = df[temas].apply(lambda x: x.str.contains("✔").sum(), axis=1)
             df["Ausen."] = len(temas) - df["Asist."]
             st.dataframe(df.drop(columns=['documento']), use_container_width=True)
 
             if st.button("📥 Descargar Reporte PDF"):
                 pdf_io = io.BytesIO(); canv = canvas.Canvas(pdf_io, pagesize=landscape(legal)); w, h = landscape(legal)
-                if os.path.exists(ESCUDO_PATH): canv.drawInlineImage(Image.open(ESCUDO_PATH), 1.5*cm, h-2.5*cm, 1.8*cm, 1.8*cm)
+                # Escudo sin fondo negro (transparente)
+                if os.path.exists(ESCUDO_PATH): canv.drawInlineImage(Image.open(ESCUDO_PATH), 1.5*cm, h-2.5*cm, 1.8*cm, 1.8*cm, preserveAspectRatio=True, mask='auto')
+                
                 canv.setFont("Helvetica-Bold", 14); canv.drawString(4*cm, h-1.5*cm, COLEGIO)
                 canv.setFont("Helvetica", 10); canv.drawString(4*cm, h-2.1*cm, f"Materia: {mr} | Grado: {gr} | Docente: {st.session_state.profe_nom}")
-                y = h - 3.5*cm; canv.setFont("Helvetica-Bold", 8); canv.drawString(1.5*cm, y, "ESTUDIANTE")
-                tx = 7.5*cm
+                
+                # Dibujar Cuadrícula y Cabeceras
+                y = h - 3.5*cm; canv.setFont("Helvetica-Bold", 8)
+                canv.line(1.5*cm, y+0.5*cm, w-1.5*cm, y+0.5*cm) # Línea superior cabecera
+                canv.drawString(1.7*cm, y, "ESTUDIANTE"); tx = 8.5*cm
+                
                 for t in temas:
                     canv.setFont("Helvetica-Bold", 7); canv.drawString(tx, y+0.2*cm, t.split("\n")[0][:12])
-                    canv.setFont("Helvetica", 6); canv.drawString(tx, y, t.split("\n")[1] if "\n" in t else "")
-                    tx += 2*cm
+                    canv.setFont("Helvetica", 6); canv.drawString(tx, y, t.split("\n")[1])
+                    canv.line(tx-0.2*cm, y+0.5*cm, tx-0.2*cm, y-0.5*cm) # Línea vertical tema
+                    tx += 2.2*cm
+                
                 canv.drawString(tx, y, "Asist."); canv.drawString(tx+1.2*cm, y, "Ausen.")
-                y -= 0.5*cm; canv.setFont("Helvetica", 8)
+                canv.line(1.5*cm, y-0.2*cm, w-1.5*cm, y-0.2*cm) # Línea inferior cabecera
+                
+                y -= 0.6*cm; canv.setFont("Helvetica", 8)
                 for i, r in df.iterrows():
-                    canv.drawString(1.5*cm, y, f"{i+1}. {r['nombre'][:35]}"); tx = 7.5*cm
+                    canv.drawString(1.7*cm, y, f"{i+1}. {r['nombre'][:35]}"); tx = 8.5*cm
                     for t in temas:
-                        if r[t] == "X": canv.drawCentredString(tx+0.5*cm, y, "X")
-                        tx += 2*cm
-                    canv.drawCentredString(tx+0.3*cm, y, str(r["Asist."])); canv.drawCentredString(tx+1.5*cm, y, str(r["Ausen."]))
-                    y -= 0.4*cm
+                        canv.drawCentredString(tx+0.5*cm, y, r[t])
+                        canv.line(tx-0.2*cm, y+0.4*cm, tx-0.2*cm, y-0.2*cm) # Línea vertical celda
+                        tx += 2.2*cm
+                    
+                    canv.drawCentredString(tx+0.3*cm, y, str(r["Asist."]))
+                    canv.drawCentredString(tx+1.5*cm, y, str(r["Ausen."]))
+                    canv.line(1.5*cm, y-0.1*cm, w-1.5*cm, y-0.1*cm) # Línea horizontal fila
+                    y -= 0.5*cm
                     if y < 2*cm: canv.showPage(); y = h - 2*cm
+                
                 canv.save(); st.download_button("✅ Guardar PDF", pdf_io.getvalue(), f"Reporte_{gr}.pdf")
 
 # --- 5. SECCIÓN REINICIO ---
 elif menu == "⚙️ Reinicio":
     if st.button("🗑️ ELIMINAR DATOS"):
         supabase.table("asistencia").delete().eq("profe_id", st.session_state.user).execute()
-        supabase.table("estudiantes").delete().eq("profe_id", st.session_state.user).execute()
-        supabase.table("cursos").delete().eq("profe_id", st.session_state.user).execute()
-        st.success("Limpio."); st.rerun()
+        st.success("Registros eliminados."); st.rerun()
 
 if st.sidebar.button("Salir"): st.session_state.logueado = False; st.rerun()
