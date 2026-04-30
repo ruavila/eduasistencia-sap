@@ -144,44 +144,75 @@ if menu == "📚 Cursos":
 # --- 2. ESTUDIANTES Y CARNETS ---
 elif menu == "👤 Estudiantes":
     st.subheader("Carga de Estudiantes y Carnetización")
+    
+    # Importación necesaria para el tamaño carta si no la tienes arriba
+    from reportlab.lib.pagesizes import letter 
+
     cursos = supabase.table("cursos").select("grado, materia").eq("profe_id", st.session_state.user).execute().data
     if cursos:
         sel = st.selectbox("Curso:", [f"{r['grado']} | {r['materia']}" for r in cursos])
         gs, ms = sel.split(" | ")
         f = st.file_uploader("Subir Excel", type=["xlsx"])
+        
         if f and st.button("Procesar y Generar PDF"):
-            df = pd.read_excel(f); df.columns = [str(c).strip().lower() for c in df.columns]
-            pdf = io.BytesIO(); canv = canvas.Canvas(pdf, pagesize=landscape(legal))
-            ancho_pg, alto_pg = landscape(legal)
-            x, y, col = 1.5*cm, alto_pg-5*cm, 0
-            for _, r in df.iterrows():
-                e_id = str(r.get('estudiante_id', r.get('documento', ''))).split('.')[0]
-                e_nm = str(r.get('nombre', '')).upper()
+            df = pd.read_excel(f)
+            df.columns = [str(c).strip().lower() for c in df.columns]
+            
+            pdf = io.BytesIO()
+            # Cambio a letter (Carta) y quitamos el landscape para que sea vertical
+            canv = canvas.Canvas(pdf, pagesize=letter)
+            ancho_pg, alto_pg = letter # Dimensiones: 21.59cm x 27.94cm
+            
+            # Ajuste de márgenes iniciales
+            x, y, col = 1.5*cm, alto_pg - 5*cm, 0
+            
+            for index, r in df.iterrows():
+                e_id = str(r.get('estudiante_id', r.get('documento', ''))).split('.')[0].strip()
+                e_nm = str(r.get('nombre', '')).upper().strip()
                 e_ws = "".join(filter(str.isdigit, str(r.get('whatsapp', '')))).split('.')[0]
                 
+                # Registro en base de datos
                 supabase.table("estudiantes").upsert({
                     "documento": e_id, "nombre": e_nm, "whatsapp": e_ws, 
                     "grado": gs, "materia": ms, "profe_id": st.session_state.user
                 }).execute()
                 
-                qr = qrcode.make(e_id); t_qr = io.BytesIO(); qr.save(t_qr, format='PNG'); t_qr.seek(0)
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_qr:
+                # Generación de QR (Usando la lógica de instancia fresca para evitar duplicados)
+                qr_engine = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=10, border=4)
+                qr_engine.add_data(e_id)
+                qr_engine.make(fit=True)
+                img_qr = qr_engine.make_image(fill_color="black", back_color="white")
+                
+                with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{index}.png") as tmp_qr:
+                    img_qr.save(tmp_qr.name)
                     tmp_qr_path = tmp_qr.name
-                    tmp_qr.write(t_qr.getvalue())
 
+                # Dibujar imagen y textos
                 canv.drawInlineImage(tmp_qr_path, x, y, 4*cm, 4*cm)
                 canv.setFont("Helvetica-Bold", 7)
                 canv.drawCentredString(x + 2*cm, y-0.4*cm, e_nm[:25])
                 canv.setFont("Helvetica", 6)
                 canv.drawCentredString(x + 2*cm, y-0.8*cm, f"Grado: {gs} - {IE_INITIALS}")
                 
+                # --- Lógica de Cuadrícula para Hoja Carta Vertical ---
                 col += 1
-                if col >= 3: x, y, col = 1.5*cm, y-6.5*cm, 0
-                else: x += 6.5*cm
-                if y < 2*cm: canv.showPage(); x, y, col = 1.5*cm, alto_pg-5*cm, 0
+                if col >= 3: # 3 carnets por fila en vertical
+                    x = 1.5*cm
+                    y -= 6.0*cm # Espacio entre filas
+                    col = 0
+                else: 
+                    x += 6.5*cm # Espacio entre columnas
+                
+                # Salto de página si se acaba el espacio vertical
+                if y < 2*cm: 
+                    canv.showPage()
+                    x, y, col = 1.5*cm, alto_pg - 5*cm, 0
+                
                 os.remove(tmp_qr_path)
+                
             canv.save()
-            st.download_button("📥 Descargar Carnets", pdf.getvalue(), f"QR_{gs}.pdf")
+            st.success(f"Se generaron carnets para {len(df)} estudiantes en formato Carta.")
+            st.download_button("📥 Descargar Carnets", pdf.getvalue(), f"Carnets_{gs}.pdf")
 
 # --- 3. SCANNER QR ---
 elif menu == "📷 Scanner QR":
