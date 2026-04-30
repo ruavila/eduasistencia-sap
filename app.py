@@ -49,9 +49,20 @@ if not st.session_state.logueado:
     with col_central:
         c1, c2 = st.columns([1, 4])
         with c1:
-            if os.path.exists(ESCUDO_PATH): st.image(ESCUDO_PATH, width=80)
+            if os.path.exists(ESCUDO_PATH): 
+                st.image(ESCUDO_PATH, width=80)
         with c2:
-            st.markdown(f"### {COLEGIO}\n# {APP_NAME}")
+            st.markdown(f"### {COLEGIO}")
+            # Insertamos nombre de la app, versión y desarrollador aquí
+            st.markdown(
+                f"""
+                <h1 style='margin:0;'>{APP_NAME}</h1>
+                <p style='margin:0; color: grey; font-size: 0.9rem;'>
+                    <b>Versión {APP_VERSION}</b> | Desarrollado por: <b>{DEVELOPER_NAME}</b>
+                </p>
+                """, 
+                unsafe_allow_html=True
+            )
         
         st.markdown("---")
         t1, t2, t3 = st.tabs(["🔐 Acceso", "📝 Registro", "🔑 Recuperar Clave"])
