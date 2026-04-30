@@ -17,7 +17,7 @@ from streamlit_qrcode_scanner import qrcode_scanner
 # --- CONSTANTES GLOBALES (Mover al inicio del archivo) ---
 APP_NAME = "EduAsistencia-Pro"
 APP_VERSION = "v2.1.0"
-DEVELOPER_NAME = "Tu Nombre Aquí" # <-- Pon tu nombre aquí
+DEVELOPER_NAME = "Rubén Darío Ávila Sandoval" # <-- Pon tu nombre aquí
 IE_INITIALS = "I.E. S.A.P."
 COLEGIO = "Institución Educativa San Antonio de Padua" # Valor por defecto
 # ==============================================================================
