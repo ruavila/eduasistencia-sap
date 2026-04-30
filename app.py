@@ -13,6 +13,13 @@ from reportlab.lib.pagesizes import landscape, legal
 from reportlab.lib.units import cm
 from streamlit_qrcode_scanner import qrcode_scanner
 
+# ==============================================================================
+# PROYECTO: EduAsistencia-Pro
+# VERSIÓN: 2.1.0
+# DESARROLLADOR: [Rubén Darío Ávila Sandoval]
+# COPYRIGHT: © 2026 Todos los derechos reservados
+# ==============================================================================
+
 # --- INTEGRACIÓN CON MÓDULOS ---
 try:
     from modules.database import supabase, hash_password
@@ -301,6 +308,11 @@ elif menu == "⚙️ Reinicio":
                 if st.button("Actualizar Clave"):
                     supabase.table("usuarios").update({"password": hash_password(n_pass)}).eq("usuario", u_sel).execute()
                     st.success(f"Clave actualizada para {u_sel}.")
-
+# --- PIE DE PÁGINA GLOBAL ---
+st.markdown("---")
+st.markdown(
+    f"<p style='text-align: center; color: grey; font-size: 0.8rem;'><b>{APP_NAME} {APP_VERSION}</b> | Desarrollado por <b>{DEVELOPER_NAME}</b> | &copy; 2026</p>", 
+    unsafe_allow_html=True
+)
 if st.sidebar.button("Cerrar Sesión"):
     st.session_state.logueado = False; st.rerun()
