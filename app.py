@@ -257,73 +257,77 @@ elif menu == "📷 Scanner QR":
                             msg = urllib.parse.quote(f"Cordial saludo.\n\nLe informo que el estudiante {a['nombre']} NO asistió hoy ({hoy}) a la clase de {ma} ({tema}).\n\nAtentamente,\nProf. {st.session_state.profe_nom}\n{COLEGIO}")
                             c2.markdown(f'<a href="https://wa.me/57{a["whatsapp"]}?text={msg}" target="_blank"><button style="background:#25d366; color:white; border:none; padding:8px; border-radius:5px; width:100%; font-weight:bold; cursor:pointer;">📲 Notificar</button></a>', unsafe_allow_html=True)
 
-# --- 4. REPORTES ---
+# --- 4. REPORTES (CON SOLUCIÓN DE ESCUDO TRANSPARENTE) ---
 elif menu == "📊 Reportes":
     st.subheader("Reportes Detallados")
     cursos = supabase.table("cursos").select("grado, materia").eq("profe_id", st.session_state.user).execute().data
     if cursos:
         sel_r = st.selectbox("Curso:", [f"{r['grado']} | {r['materia']}" for r in cursos])
         gr, mr = sel_r.split(" | ")
-        
-        col_pdf, col_excel = st.columns(2)
-        
-        # --- LÓGICA PARA OBTENER DATOS ---
-        ests_db = supabase.table("estudiantes").select("documento, nombre").eq("grado", gr).eq("profe_id", st.session_state.user).order("nombre").execute().data
-        asist_db = supabase.table("asistencia").select("estudiante_id, fecha, tema").eq("grado", gr).eq("profe_id", st.session_state.user).execute().data
-        
-        df_ests = pd.DataFrame(ests_db) if ests_db else pd.DataFrame()
-        df_asist = pd.DataFrame(asist_db) if asist_db else pd.DataFrame()
+        if st.button("📄 Generar Planilla PDF", type="primary", use_container_width=True):
+            ests_db = supabase.table("estudiantes").select("documento, nombre").eq("grado", gr).eq("profe_id", st.session_state.user).order("nombre").execute().data
+            asist_db = supabase.table("asistencia").select("estudiante_id, fecha, tema").eq("grado", gr).eq("profe_id", st.session_state.user).execute().data
+            ests = pd.DataFrame(ests_db) if ests_db else pd.DataFrame()
+            asist = pd.DataFrame(asist_db) if asist_db else pd.DataFrame()
+            
+            if not ests.empty:
+                clases = asist[['fecha', 'tema']].drop_duplicates().sort_values(by='fecha').values.tolist() if not asist.empty else []
+                pdf_io = io.BytesIO(); canv = canvas.Canvas(pdf_io, pagesize=landscape(legal))
+                ancho, alto = landscape(legal); mrg = 1.0*cm
+                
+                # --- LÓGICA DE ESCUDO CON MÁSCARA DE TRANSPARENCIA ---
+                if os.path.exists(ESCUDO_PATH):
+                    try:
+                        img_pil = Image.open(ESCUDO_PATH).convert("RGBA")
+                        r, g, b, a = img_pil.split()
+                        img_rgb = Image.merge("RGB", (r, g, b))
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as f_rgb:
+                            img_rgb.save(f_rgb.name, format="PNG")
+                            path_rgb = f_rgb.name
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as f_a:
+                            a.save(f_a.name, format="PNG")
+                            path_a = f_a.name
+                        canv.drawImage(path_rgb, mrg, alto-2.5*cm, width=2.2*cm, height=2.2*cm, mask=path_a)
+                        os.remove(path_rgb); os.remove(path_a)
+                    except:
+                        pass
+                
+                canv.setFont("Helvetica-Bold", 14); canv.drawCentredString(ancho/2, alto-1.2*cm, COLEGIO)
+                canv.setFont("Helvetica", 9); canv.drawString(mrg+2.5*cm, alto-1.7*cm, f"Materia: {mr} | Grado: {gr} | Docente: {st.session_state.profe_nom}")
+                w_nom, n_cl = 7.5*cm, len(clases)
+                w_col = min(max((ancho - (mrg*2) - w_nom - 3.2*cm) / n_cl, 1.5*cm), 3.5*cm) if n_cl > 0 else 1.5*cm
+                y_f = alto-4.2*cm
+                canv.rect(mrg, y_f, w_nom, 1.2*cm); canv.setFont("Helvetica-Bold", 8); canv.drawCentredString(mrg+w_nom/2, y_f+0.5*cm, "ESTUDIANTE")
+                x_h = mrg+w_nom
+                for f, t in clases:
+                    canv.rect(x_h, y_f, w_col, 1.2*cm); canv.setFont("Helvetica-Bold", 6)
+                    canv.drawCentredString(x_h+w_col/2, y_f+0.85*cm, f"{str(t)[:15]}")
+                    canv.setFont("Helvetica", 6); canv.drawCentredString(x_h+w_col/2, y_f+0.25*cm, f"{f}")
+                    x_h += w_col
+                canv.rect(x_h, y_f, 1.6*cm, 1.2*cm); canv.drawCentredString(x_h+0.8*cm, y_f+0.5*cm, "Asist.")
+                canv.rect(x_h+1.6*cm, y_f, 1.6*cm, 1.2*cm); canv.drawCentredString(x_h+2.4*cm, y_f+0.5*cm, "Ausen.")
+                
+                y_f -= 0.55*cm
+                for i, est in ests.iterrows():
+                    if y_f < 2*cm: canv.showPage(); y_f = alto-3.5*cm
+                    canv.rect(mrg, y_f, w_nom, 0.55*cm); canv.setFont("Helvetica", 7)
+                    canv.drawString(mrg+0.1*cm, y_f+0.15*cm, f"{i+1}. {est['nombre'][:40]}")
+                    x_f, t_as, t_au = mrg+w_nom, 0, 0
+                    for f, t in clases:
+                        canv.rect(x_f, y_f, w_col, 0.55*cm)
+                        presencia = not asist[(asist['estudiante_id'].astype(str)==str(est['documento'])) & (asist['fecha']==f) & (asist['tema']==t)].empty if not asist.empty else False
+                        if presencia:
+                            canv.setFont("ZapfDingbats", 8); canv.drawCentredString(x_f+w_col/2, y_f+0.15*cm, u"\u2714")
+                            t_as += 1
+                        else:
+                            canv.setFont("Helvetica-Bold", 8); canv.drawCentredString(x_f+w_col/2, y_f+0.15*cm, "X")
+                            t_au += 1
+                        x_f += w_col
+                    canv.setFont("Helvetica-Bold", 7); canv.rect(x_f, y_f, 1.6*cm, 0.55*cm); canv.drawCentredString(x_f+0.8*cm, y_f+0.15*cm, str(t_as))
+                    canv.rect(x_f+1.6*cm, y_f, 1.6*cm, 0.55*cm); canv.drawCentredString(x_f+2.4*cm, y_f+0.15*cm, str(t_au))
+                    y_f -= 0.55*cm
+                canv.save(); st.download_button("📥 Descargar Reporte", pdf_io.getvalue(), f"Reporte_{gr}.pdf", use_container_width=True)
 
-        # --- BOTÓN 1: PDF (Tu código actual optimizado) ---
-        with col_pdf:
-            if st.button("📄 Generar Planilla PDF", type="primary", use_container_width=True):
-                # ... (Aquí va toda tu lógica actual de reportlab para generar el PDF)
-                # Al final de tu lógica de PDF:
-                # st.download_button("📥 Descargar PDF", pdf_io.getvalue(), f"Reporte_{gr}.pdf")
-                st.info("Generando vista previa del PDF...") # Opcional
-
-        # --- BOTÓN 2: EXCEL (Nueva funcionalidad) ---
-        with col_excel:
-            if not df_ests.empty:
-                # Creamos la matriz de asistencia para Excel
-                clases = df_asist[['fecha', 'tema']].drop_duplicates().sort_values(by='fecha')
-                
-                # Crear DataFrame base con nombres
-                df_reporte = df_ests[['nombre', 'documento']].copy()
-                
-                # Añadir columnas de fechas/temas
-                for _, row in clases.iterrows():
-                    col_name = f"{row['fecha']} ({row['tema']})"
-                    # Marcamos con 1 si asistió, 0 si no
-                    df_reporte[col_name] = df_reporte['documento'].apply(
-                        lambda x: 1 if not df_asist[(df_asist['estudiante_id'].astype(str) == str(x)) & 
-                                                   (df_asist['fecha'] == row['fecha']) & 
-                                                   (df_asist['tema'] == row['tema'])].empty else 0
-                    )
-                
-                # Totales
-                columnas_asistencia = df_reporte.columns[2:]
-                df_reporte['Total Asistencias'] = df_reporte[columnas_asistencia].sum(axis=1)
-                df_reporte['% Asistencia'] = (df_reporte['Total Asistencias'] / len(columnas_asistencia) * 100).round(1) if len(columnas_asistencia) > 0 else 0
-
-                # Convertir a Excel en memoria
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                    df_reporte.to_excel(writer, index=False, sheet_name='Asistencia')
-                    # Auto-ajuste de columnas (opcional pero profesional)
-                    worksheet = writer.sheets['Asistencia']
-                    for i, col in enumerate(df_reporte.columns):
-                        worksheet.set_column(i, i, max(len(str(col)), 12))
-                
-                st.download_button(
-                    label="Excel 📗 Descargar Reporte",
-                    data=output.getvalue(),
-                    file_name=f"Asistencia_{gr}_{mr}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
-                )
-            else:
-                st.warning("No hay estudiantes registrados en este curso.")
 
 # --- 5. REINICIO Y PANEL ADMIN ---
 elif menu == "⚙️ Reinicio":
