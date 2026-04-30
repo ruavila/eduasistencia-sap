@@ -104,10 +104,22 @@ if not st.session_state.logueado:
 # --- CABECERA ---
 col_esc, col_txt = st.columns([1, 4])
 with col_esc:
-    if os.path.exists(ESCUDO_PATH): st.image(ESCUDO_PATH, width=90)
+    if os.path.exists(ESCUDO_PATH): 
+        st.image(ESCUDO_PATH, width=90)
 with col_txt:
     st.markdown(f"<h2 style='margin:0;'>{COLEGIO}</h2>", unsafe_allow_html=True)
-    st.markdown(f"<p style='margin:0; color:#4F8BF9;'><b>{APP_NAME}</b> | Docente: {st.session_state.profe_nom}</p>", unsafe_allow_html=True)
+    # Aquí agregamos los créditos en la pantalla principal
+    st.markdown(
+        f"""
+        <p style='margin:0; color:#4F8BF9; font-size: 1.1rem;'>
+            <b>{APP_NAME} {APP_VERSION}</b>
+        </p>
+        <p style='margin:0; color: grey; font-size: 0.9rem;'>
+            Desarrollado por: <b>{DEVELOPER_NAME}</b> | Docente: {st.session_state.profe_nom}
+        </p>
+        """, 
+        unsafe_allow_html=True
+    )
 st.divider()
 
 menu = st.sidebar.radio("Navegación", ["📚 Cursos", "👤 Estudiantes", "📷 Scanner QR", "📊 Reportes", "⚙️ Reinicio"])
