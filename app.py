@@ -1,220 +1,209 @@
-# =================================================================
-# PROYECTO: eduasistencia-pro 
-# INSTITUCIÓN: I.E. San Antonio de Padua - Sede Timbío
-# FUNCIÓN: Gestión de Asistencia y Generación de QR (Versión Migrada)
-# =================================================================
+# ==============================================================================
+# PROYECTO: eduasistencia-pro (Versión Evolucionada)
+# INSTITUCIÓN: Institución Educativa San Antonio de Padua - Sede Timbío
+# AUTOR: Sistema de Gestión de Asistencia Estudiantil
+# ARCHIVO: app.py
+# ==============================================================================
 
 import streamlit as st
 import sqlite3
 import qrcode
 import pandas as pd
 import datetime
-import time
+import os
+import base64
 from io import BytesIO
 from PIL import Image
 
-# --- CONFIGURACIÓN GLOBAL DE LA INTERFAZ ---
+# ------------------------------------------------------------------------------
+# 1. CONFIGURACIÓN DE LA INTERFAZ DE USUARIO (Líneas 1-50)
+# ------------------------------------------------------------------------------
 st.set_page_config(
-    page_title="eduasistencia-pro | Gestión Escolar",
-    page_icon="🔖",
+    page_title="eduasistencia-pro | San Antonio de Padua",
+    page_icon="🎓",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# --- ESTILOS CSS PERSONALIZADOS (Líneas 25-50) ---
-def local_css():
+# Estilos CSS embebidos para mantener la estética profesional original
+def cargar_estilos():
     st.markdown("""
         <style>
-        .main { background-color: #f8f9fa; }
-        .stMetric { border: 1px solid #d1d5db; padding: 10px; border-radius: 8px; background: white; }
-        .qr-card { border: 2px solid #e5e7eb; border-radius: 12px; padding: 20px; background-color: #ffffff; text-align: center; margin-bottom: 15px; }
-        .sidebar-header { color: #1f2937; font-weight: bold; font-size: 1.2rem; }
-        .success-text { color: #059669; font-weight: 600; }
+        .stApp { background-color: #f4f7f6; }
+        .estudiante-card { 
+            border: 1px solid #d1d5db; 
+            border-radius: 15px; 
+            padding: 20px; 
+            background-color: white; 
+            box-shadow: 2px 2px 10px rgba(0,0,0,0.05);
+            text-align: center;
+        }
+        .header-text { color: #1e3a8a; font-family: 'Arial'; font-weight: bold; }
+        .sidebar-brand { font-size: 24px; font-weight: bold; color: #1e40af; text-align: center; }
         </style>
     """, unsafe_allow_html=True)
 
-local_css()
+cargar_estilos()
 
-# --- GESTIÓN DE LA BASE DE DATOS (Sincronizada con image_c92259.png) ---
-def get_db_connection():
-    """Establece conexión con asistencia.db asegurando el manejo de hilos."""
+# ------------------------------------------------------------------------------
+# 2. GESTIÓN DE DATOS Y CONECTIVIDAD (Líneas 51-120)
+# ------------------------------------------------------------------------------
+def obtener_conexion():
+    """Establece conexión segura con la base de datos migrada."""
     try:
+        # Asegúrate de que el archivo asistencia.db esté en la raíz
         conn = sqlite3.connect('asistencia.db', check_same_thread=False)
         return conn
     except sqlite3.Error as e:
-        st.error(f"⚠️ Error crítico: No se pudo conectar a la base de datos. {e}")
+        st.error(f"Error de base de datos: {e}")
         return None
 
-def validar_migracion(conn):
-    """Verifica si la columna 'estudiante_id' existe tras la migración."""
-    try:
-        cursor = conn.cursor()
-        cursor.execute("PRAGMA table_info(estudiantes)")
-        columnas = [info[1] for info in cursor.fetchall()]
-        # Según tu imagen image_c92259.png, debe existir 'estudiante_id'
-        return "estudiante_id" in columnas
-    except Exception as e:
-        st.error(f"Error al validar estructura: {e}")
-        return False
+def validar_estructura_db(conn):
+    """Verifica la existencia de 'estudiante_id' según image_c92259.png."""
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(estudiantes)")
+    columnas = [info[1] for info in cursor.fetchall()]
+    return "estudiante_id" in columnas[cite: 1]
 
-@st.cache_data
-def cargar_datos_estudiantes():
-    """Carga y limpia los datos de los estudiantes para el reporte."""
-    conn = get_db_connection()
+@st.cache_data(ttl=600)
+def cargar_estudiantes_migrados():
+    """Carga los datos asegurando compatibilidad con la nueva estructura."""
+    conn = obtener_conexion()
     if conn:
-        if not validar_migracion(conn):
-            st.error("❌ La base de datos no tiene la columna 'estudiante_id'.")
-            return pd.DataFrame()
-        
         try:
-            # Query ajustado a los datos de tu imagen image_c92259.png
-            query = "SELECT id, estudiante_id, nombre_completo, grado FROM estudiantes"
+            # Consulta ajustada a la columna de tu imagen image_c92259.png
+            if validar_estructura_db(conn):
+                query = "SELECT id, estudiante_id, nombre_completo, grado FROM estudiantes"
+            else:
+                query = "SELECT id, estudiante_id FROM estudiantes"[cite: 1]
+            
             df = pd.read_sql_query(query, conn)
-            # Limpieza básica
-            df['nombre_completo'] = df['nombre_completo'].fillna("Sin Nombre")
-            df['grado'] = df['grado'].fillna("Sin Grado")
-            return df
-        except Exception:
-            # Fallback si solo existen las columnas básicas de la imagen
-            query = "SELECT id, estudiante_id FROM estudiantes"
-            return pd.read_sql_query(query, conn)
-        finally:
             conn.close()
+            return df
+        except Exception as e:
+            st.error(f"Error al leer tabla estudiantes: {e}")
+            return pd.DataFrame()
     return pd.DataFrame()
 
-# --- NÚCLEO DE GENERACIÓN DE IDENTIFICADORES (Líneas 100-150) ---
-def crear_qr_estudiante(codigo_id):
+# ------------------------------------------------------------------------------
+# 3. LÓGICA DE GENERACIÓN DE IDENTIFICADORES QR (Líneas 121-180)
+# ------------------------------------------------------------------------------
+def generar_identificador_qr(codigo_valor):
     """
-    Genera el código QR con 'border=4' para corregir el error de lectura anterior[cite: 1].
+    Crea el código QR con margen de seguridad (border=4) para lectura óptica.
     """
     try:
         qr = qrcode.QRCode(
             version=1,
             error_correction=qrcode.constants.ERROR_CORRECT_H,
             box_size=10,
-            border=4, # <--- INDISPENSABLE para que el lector no falle[cite: 1]
+            border=4  # INDISPENSABLE: Soluciona el error de lectura anterior
         )
-        # Usamos el código de la columna 'estudiante_id' de image_c92259.png[cite: 1]
-        qr.add_data(f"SISTEMA_ASISTENCIA_ID_{codigo_id}")
+        # El contenido usa el 'estudiante_id' único de la base de datos[cite: 1]
+        qr.add_data(f"ID:{codigo_valor}")
         qr.make(fit=True)
         
         img = qr.make_image(fill_color="#000000", back_color="#ffffff")
         
-        # Procesamiento de imagen para Streamlit
-        img_buffer = BytesIO()
-        img.save(img_buffer, format="PNG")
-        return img_buffer.getvalue()
+        # Conversión de imagen para visualización en Streamlit
+        buffered = BytesIO()
+        img.save(buffered, format="PNG")
+        return buffered.getvalue()
     except Exception as e:
-        st.error(f"Error generando QR para {codigo_id}: {e}")
+        st.error(f"Error al generar QR: {e}")
         return None
 
-# --- FUNCIONES DE ASISTENCIA Y LOGS (Líneas 151-200) ---
-def registrar_log_asistencia(est_id):
-    """Guarda el evento de escaneo en la base de datos."""
-    conn = get_db_connection()
+# ------------------------------------------------------------------------------
+# 4. MÓDULOS DE REGISTRO Y ASISTENCIA (Líneas 181-240)
+# ------------------------------------------------------------------------------
+def registrar_asistencia_db(estudiante_id):
+    """Inserta el registro de entrada en la tabla de logs."""
+    conn = obtener_conexion()
     if conn:
         try:
-            now = datetime.datetime.now()
-            fecha = now.strftime("%Y-%m-%d")
-            hora = now.strftime("%H:%M:%S")
             cursor = conn.cursor()
+            fecha_actual = datetime.datetime.now().strftime("%Y-%m-%d")
+            hora_actual = datetime.datetime.now().strftime("%H:%M:%S")
             cursor.execute(
                 "INSERT INTO registro_asistencia (estudiante_id, fecha, hora) VALUES (?, ?, ?)",
-                (est_id, fecha, hora)
+                (estudiante_id, fecha_actual, hora_actual)
             )
             conn.commit()
+            conn.close()
             return True
         except Exception as e:
-            st.error(f"No se pudo registrar la asistencia: {e}")
+            st.error(f"Error al registrar asistencia: {e}")
             return False
-        finally:
-            conn.close()
     return False
 
-# --- COMPONENTES DE LA INTERFAZ (UI) (Líneas 201-280) ---
-def render_dashboard(df):
-    st.markdown("## 📊 Dashboard de Control")
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.metric("Total Estudiantes", len(df))
-    with c2:
-        st.metric("Grados Registrados", df['grado'].nunique() if 'grado' in df.columns else 0)
-    with c3:
-        st.metric("Sede", "Timbío")
-
-def render_galeria_qr(df):
-    st.markdown("### 🖨️ Generador de Carnets")
-    busqueda = st.text_input("🔍 Buscar estudiante por ID o Nombre:", "")
-    
-    # Lógica de filtrado dinámico
-    if busqueda:
-        df = df[df.astype(str).apply(lambda x: busqueda.lower() in x.str.lower().values, axis=1)]
-
-    # Grid de visualización
-    num_cols = 3
-    rows = st.columns(num_cols)
-    for index, row in df.iterrows():
-        # Usamos estudiante_id de la imagen[cite: 1]
-        id_actual = row['estudiante_id']
-        nombre_actual = row['nombre_completo'] if 'nombre_completo' in df.columns else f"ID: {id_actual}"
-        
-        with rows[index % num_cols]:
-            with st.container(border=True):
-                st.markdown(f"**{nombre_actual}**")
-                st.caption(f"Código Sistema: {id_actual}")
-                
-                # Generamos el QR único para cada iteración[cite: 1]
-                qr_bytes = crear_qr_estudiante(id_actual)
-                if qr_bytes:
-                    st.image(qr_bytes, use_container_width=True)
-                    st.download_button(
-                        label=f"⬇️ PNG {id_actual}",
-                        data=qr_bytes,
-                        file_name=f"QR_EST_{id_actual}.png",
-                        mime="image/png",
-                        key=f"btn_{id_actual}_{index}"
-                    )
-
-# --- FUNCIÓN PRINCIPAL (MAIN) (Líneas 281-306) ---
+# ------------------------------------------------------------------------------
+# 5. CONSTRUCCIÓN DE LA INTERFAZ DE USUARIO (Líneas 241-306)
+# ------------------------------------------------------------------------------
 def main():
-    # Inicialización de la sesión
-    if 'authenticated' not in st.session_state:
-        st.session_state['authenticated'] = True # Bypass para desarrollo
-    
-    # Sidebar de Navegación
+    # Barra lateral de navegación
     with st.sidebar:
-        st.markdown("<p class='sidebar-header'>eduasistencia-pro</p>", unsafe_allow_html=True)
-        st.image("https://via.placeholder.com/100", caption="Institución San Antonio de Padua")
+        st.markdown("<div class='sidebar-brand'>eduasistencia-pro</div>", unsafe_allow_html=True)
         st.divider()
-        menu = st.radio("Módulos del Sistema:", 
-                        ["🏠 Inicio", "🆔 Generar QRs", "📝 Registro de Asistencia", "📋 Reportes CSV"])
+        menu = st.selectbox("Módulo del Sistema", 
+                            ["Dashboard", "Generar Carnets QR", "Toma de Asistencia", "Reportes"])
         st.divider()
-        st.caption(f"Última actualización: {datetime.date.today()}")
+        st.info("Conectado a: Institución San Antonio de Padua")
+        st.caption(f"Fecha: {datetime.date.today()}")
 
-    # Carga de datos
-    df_principal = cargar_datos_estudiantes()
+    df_data = cargar_estudiantes_migrados()
 
-    if menu == "🏠 Inicio":
-        render_dashboard(df_principal)
-        st.image("https://via.placeholder.com/600x200", caption="Vista de la Institución")
+    if menu == "Dashboard":
+        st.markdown("<h1 class='header-text'>Panel de Control Estudiantil</h1>", unsafe_allow_html=True)
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Estudiantes", len(df_data))
+        col2.metric("Sede", "Timbío")
+        col3.metric("Estado DB", "Sincronizado" if not df_data.empty else "Error")
         
-    elif menu == "🆔 Generar QRs":
-        render_galeria_qr(df_principal)
+        if not df_data.empty and 'grado' in df_data.columns:
+            st.bar_chart(df_data['grado'].value_counts())
+
+    elif menu == "Generar Carnets QR":
+        st.markdown("<h2 class='header-text'>Generador de Códigos Únicos</h2>", unsafe_allow_html=True)
+        busqueda = st.text_input("Filtrar por Nombre o Código Estudiante...")
         
-    elif menu == "📝 Registro de Asistencia":
-        st.markdown("### Escaneo de Códigos")
-        st.write("Conecte el lector de código de barras o escanee aquí:")
-        lector = st.text_input("Esperando señal...", key="reader")
-        if lector:
-            if registrar_log_asistencia(lector):
+        if busqueda:
+            df_data = df_data[df_data.astype(str).apply(lambda x: busqueda.lower() in x.str.lower().values, axis=1)]
+
+        # Visualización en Grid dinámico
+        columnas = st.columns(4)
+        for i, (index, row) in enumerate(df_data.iterrows()):
+            # Usamos 'estudiante_id' de image_c92259.png[cite: 1]
+            cod_est = row['estudiante_id']
+            nombre_est = row['nombre_completo'] if 'nombre_completo' in df_data.columns else f"Código: {cod_est}"
+            
+            with columnas[i % 4]:
+                with st.container():
+                    st.markdown(f"**{nombre_est}**")
+                    # Generamos el QR pasando el valor único de la fila[cite: 1]
+                    qr_img = generar_identificador_qr(cod_est)
+                    if qr_img:
+                        st.image(qr_img, width=150)
+                        st.download_button(
+                            label="Descargar PNG",
+                            data=qr_img,
+                            file_name=f"QR_{cod_est}.png",
+                            mime="image/png",
+                            key=f"btn_{cod_est}_{i}"
+                        )
+
+    elif menu == "Toma de Asistencia":
+        st.markdown("<h2 class='header-text'>Registro por Escáner</h2>", unsafe_allow_html=True)
+        codigo_leido = st.text_input("Esperando lectura de QR...", placeholder="Escanee aquí...")
+        if codigo_leido:
+            if registrar_asistencia_db(codigo_leido):
+                st.success(f"Asistencia confirmada para ID: {codigo_leido}")
                 st.balloons()
-                st.success(f"✅ Asistencia registrada para: {lector}")
-        
-    elif menu == "📋 Reportes CSV":
-        st.markdown("### Descarga de Datos Migrados")
-        st.dataframe(df_principal, use_container_width=True)
-        csv = df_principal.to_csv(index=False).encode('utf-8')
-        st.download_button("💾 Descargar Excel/CSV", data=csv, file_name="estudiantes_padua.csv", mime='text/csv')
+
+    elif menu == "Reportes":
+        st.markdown("<h2 class='header-text'>Exportación de Datos</h2>", unsafe_allow_html=True)
+        st.dataframe(df_data, use_container_width=True)
+        csv = df_data.to_csv(index=False).encode('utf-8')
+        st.download_button("Descargar Reporte Completo", data=csv, file_name="reporte_estudiantes.csv")
 
 if __name__ == "__main__":
     main()
