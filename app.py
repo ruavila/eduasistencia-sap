@@ -19,19 +19,15 @@ try:
     from modules.config import APP_NAME, COLEGIO, ESCUDO_PATH
 except Exception as e:
     st.error(f"Error al cargar módulos: {e}")
-    # Valores por defecto por seguridad si fallan los módulos
     APP_NAME = "EduAsistencia-Pro"
     COLEGIO = "Institución Educativa San Antonio de Padua"
-    ESCUDO_PATH = "escudo.png" 
+    # Ruta al escudo en la carpeta assets
+    ESCUDO_PATH = os.path.join("assets", "escudo.png") 
 
-# Iniciales de la institución para los carnets
 IE_INITIALS = "I.E. S.A.P."
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title=APP_NAME, layout="wide", initial_sidebar_state="collapsed")
-
-# Variable global para el número de soporte
-WHATSAPP_ADMIN = "573000000000" 
 
 if 'logueado' not in st.session_state: 
     st.session_state.logueado = False
@@ -89,34 +85,14 @@ if not st.session_state.logueado:
                     st.write(f"**Pregunta:** {u_data[0]['pregunta_seguridad']}")
                     r_int = st.text_input("Su respuesta secreta:", type="password")
                     n_p = st.text_input("Nueva Contraseña:", type="password")
-                    
-                    col_b1, col_b2 = st.columns(2)
-                    with col_b1:
-                        if st.button("✅ ACTUALIZAR", use_container_width=True):
-                            if r_int.strip().lower() == u_data[0]['respuesta_seguridad']:
-                                supabase.table("usuarios").update({"password": hash_password(n_p)}).eq("usuario", ur).execute()
-                                st.success("Contraseña actualizada.")
-                            else: st.error("Respuesta incorrecta.")
-                    
-                    with col_b2:
-                        codigo_temp = random.randint(1000, 9999)
-                        msg_wa = urllib.parse.quote(
-                            f"Hola Administrador, soy el docente {u_data[0]['nombre']}.\n"
-                            f"Olvidé mi clave de {APP_NAME}.\n"
-                            f"Mi ID de usuario es: {ur}\n"
-                            f"Código de validación: {codigo_temp}"
-                        )
-                        st.markdown(f'''
-                            <a href="https://wa.me/{WHATSAPP_ADMIN}?text={msg_wa}" target="_blank">
-                                <button style="background:#25d366; color:white; border:none; padding:8px; border-radius:5px; width:100%; font-weight:bold; height:38px; cursor:pointer;">
-                                    📲 Ayuda por WhatsApp
-                                </button>
-                            </a>
-                        ''', unsafe_allow_html=True)
-                else: st.error("Usuario no encontrado.")
+                    if st.button("✅ ACTUALIZAR", use_container_width=True):
+                        if r_int.strip().lower() == u_data[0]['respuesta_seguridad']:
+                            supabase.table("usuarios").update({"password": hash_password(n_p)}).eq("usuario", ur).execute()
+                            st.success("Contraseña actualizada.")
+                        else: st.error("Respuesta incorrecta.")
     st.stop()
 
-# --- CABECERA APP ---
+# --- CABECERA ---
 col_esc, col_txt = st.columns([1, 4])
 with col_esc:
     if os.path.exists(ESCUDO_PATH): st.image(ESCUDO_PATH, width=90)
@@ -145,7 +121,7 @@ if menu == "📚 Cursos":
                 supabase.table("cursos").delete().eq("id", r['id']).execute()
                 st.rerun()
 
-# --- 2. ESTUDIANTES Y CARNETS (DISEÑO ACTUALIZADO) ---
+# --- 2. ESTUDIANTES Y CARNETS ---
 elif menu == "👤 Estudiantes":
     st.subheader("Carga de Estudiantes y Carnetización")
     cursos = supabase.table("cursos").select("grado, materia").eq("profe_id", st.session_state.user).execute().data
@@ -169,34 +145,25 @@ elif menu == "👤 Estudiantes":
                 }).execute()
                 
                 qr = qrcode.make(e_id); t_qr = io.BytesIO(); qr.save(t_qr, format='PNG'); t_qr.seek(0)
-                # Guardar el QR en un archivo temporal para ReportLab
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_qr:
                     tmp_qr_path = tmp_qr.name
                     tmp_qr.write(t_qr.getvalue())
 
                 canv.drawInlineImage(tmp_qr_path, x, y, 4*cm, 4*cm)
-                
-                # Diseño de texto debajo del QR
                 canv.setFont("Helvetica-Bold", 7)
-                canv.drawCentredString(x + 2*cm, y-0.4*cm, e_nm[:25]) # Nombre centrado
-                
-                # NUEVA LÍNEA: Grado + Iniciales I.E.
+                canv.drawCentredString(x + 2*cm, y-0.4*cm, e_nm[:25])
                 canv.setFont("Helvetica", 6)
                 canv.drawCentredString(x + 2*cm, y-0.8*cm, f"Grado: {gs} - {IE_INITIALS}")
                 
                 col += 1
                 if col >= 3: x, y, col = 1.5*cm, y-6.5*cm, 0
                 else: x += 6.5*cm
-                
                 if y < 2*cm: canv.showPage(); x, y, col = 1.5*cm, alto_pg-5*cm, 0
-                
-                # Limpiar archivo temporal del QR
                 os.remove(tmp_qr_path)
-                
             canv.save()
             st.download_button("📥 Descargar Carnets", pdf.getvalue(), f"QR_{gs}.pdf")
 
-# --- 3. SCANNER QR Y NOTIFICACIONES ---
+# --- 3. SCANNER QR ---
 elif menu == "📷 Scanner QR":
     st.subheader("Captura de Asistencia")
     cursos = supabase.table("cursos").select("grado, materia").eq("profe_id", st.session_state.user).execute().data
@@ -228,10 +195,8 @@ elif menu == "📷 Scanner QR":
                 hoy = datetime.now().strftime("%Y-%m-%d")
                 total_data = supabase.table("estudiantes").select("*").eq("grado", ga).eq("profe_id", st.session_state.user).execute().data
                 pres_data = supabase.table("asistencia").select("estudiante_id").eq("fecha", hoy).eq("grado", ga).eq("tema", tema).execute().data
-                
                 total = pd.DataFrame(total_data) if total_data else pd.DataFrame()
                 pres = pd.DataFrame(pres_data) if pres_data else pd.DataFrame()
-                
                 if not total.empty:
                     aus = total[~total['documento'].isin(pres['estudiante_id'])] if not pres.empty else total
                     for _, a in aus.iterrows():
@@ -241,7 +206,7 @@ elif menu == "📷 Scanner QR":
                             msg = urllib.parse.quote(f"Cordial saludo.\n\nLe informo que el estudiante {a['nombre']} NO asistió hoy ({hoy}) a la clase de {ma} ({tema}).\n\nAtentamente,\nProf. {st.session_state.profe_nom}\n{COLEGIO}")
                             c2.markdown(f'<a href="https://wa.me/57{a["whatsapp"]}?text={msg}" target="_blank"><button style="background:#25d366; color:white; border:none; padding:8px; border-radius:5px; width:100%; font-weight:bold; cursor:pointer;">📲 Notificar</button></a>', unsafe_allow_html=True)
 
-# --- 4. REPORTES (CORRECCIÓN VISTO BUENO, TOTALES Y ESCUDO TRANSPARENTE) ---
+# --- 4. REPORTES (CON SOLUCIÓN DE ESCUDO TRANSPARENTE) ---
 elif menu == "📊 Reportes":
     st.subheader("Reportes Detallados")
     cursos = supabase.table("cursos").select("grado, materia").eq("profe_id", st.session_state.user).execute().data
@@ -251,7 +216,6 @@ elif menu == "📊 Reportes":
         if st.button("📄 Generar Planilla PDF", type="primary", use_container_width=True):
             ests_db = supabase.table("estudiantes").select("documento, nombre").eq("grado", gr).eq("profe_id", st.session_state.user).order("nombre").execute().data
             asist_db = supabase.table("asistencia").select("estudiante_id, fecha, tema").eq("grado", gr).eq("profe_id", st.session_state.user).execute().data
-            
             ests = pd.DataFrame(ests_db) if ests_db else pd.DataFrame()
             asist = pd.DataFrame(asist_db) if asist_db else pd.DataFrame()
             
@@ -260,23 +224,28 @@ elif menu == "📊 Reportes":
                 pdf_io = io.BytesIO(); canv = canvas.Canvas(pdf_io, pagesize=landscape(legal))
                 ancho, alto = landscape(legal); mrg = 1.0*cm
                 
-                # Encabezado corregido con escudo transparente usando archivo temporal
+                # --- LÓGICA DE ESCUDO CON MÁSCARA DE TRANSPARENCIA ---
                 if os.path.exists(ESCUDO_PATH):
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_esc:
-                        tmp_esc_path = tmp_esc.name
-                        img_esc = Image.open(ESCUDO_PATH).convert("RGBA")
-                        img_esc.save(tmp_esc_path, format="PNG")
-                        canv.drawInlineImage(tmp_esc_path, mrg, alto-2.5*cm, 2.2*cm, 2.2*cm)
-                        os.remove(tmp_esc_path) # Limpiar temporal
+                    try:
+                        img_pil = Image.open(ESCUDO_PATH).convert("RGBA")
+                        r, g, b, a = img_pil.split()
+                        img_rgb = Image.merge("RGB", (r, g, b))
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as f_rgb:
+                            img_rgb.save(f_rgb.name, format="PNG")
+                            path_rgb = f_rgb.name
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as f_a:
+                            a.save(f_a.name, format="PNG")
+                            path_a = f_a.name
+                        canv.drawImage(path_rgb, mrg, alto-2.5*cm, width=2.2*cm, height=2.2*cm, mask=path_a)
+                        os.remove(path_rgb); os.remove(path_a)
+                    except:
+                        pass
                 
                 canv.setFont("Helvetica-Bold", 14); canv.drawCentredString(ancho/2, alto-1.2*cm, COLEGIO)
                 canv.setFont("Helvetica", 9); canv.drawString(mrg+2.5*cm, alto-1.7*cm, f"Materia: {mr} | Grado: {gr} | Docente: {st.session_state.profe_nom}")
-                
                 w_nom, n_cl = 7.5*cm, len(clases)
                 w_col = min(max((ancho - (mrg*2) - w_nom - 3.2*cm) / n_cl, 1.5*cm), 3.5*cm) if n_cl > 0 else 1.5*cm
                 y_f = alto-4.2*cm
-                
-                # Encabezados de tabla
                 canv.rect(mrg, y_f, w_nom, 1.2*cm); canv.setFont("Helvetica-Bold", 8); canv.drawCentredString(mrg+w_nom/2, y_f+0.5*cm, "ESTUDIANTE")
                 x_h = mrg+w_nom
                 for f, t in clases:
@@ -287,7 +256,6 @@ elif menu == "📊 Reportes":
                 canv.rect(x_h, y_f, 1.6*cm, 1.2*cm); canv.drawCentredString(x_h+0.8*cm, y_f+0.5*cm, "Asist.")
                 canv.rect(x_h+1.6*cm, y_f, 1.6*cm, 1.2*cm); canv.drawCentredString(x_h+2.4*cm, y_f+0.5*cm, "Ausen.")
                 
-                # Filas con marcas y totales corregidos
                 y_f -= 0.55*cm
                 for i, est in ests.iterrows():
                     if y_f < 2*cm: canv.showPage(); y_f = alto-3.5*cm
@@ -297,26 +265,19 @@ elif menu == "📊 Reportes":
                     for f, t in clases:
                         canv.rect(x_f, y_f, w_col, 0.55*cm)
                         presencia = not asist[(asist['estudiante_id'].astype(str)==str(est['documento'])) & (asist['fecha']==f) & (asist['tema']==t)].empty if not asist.empty else False
-                        
                         if presencia:
-                            canv.setFont("ZapfDingbats", 8)
-                            canv.drawCentredString(x_f+w_col/2, y_f+0.15*cm, u"\u2714") # Visto Bueno profesional
+                            canv.setFont("ZapfDingbats", 8); canv.drawCentredString(x_f+w_col/2, y_f+0.15*cm, u"\u2714")
                             t_as += 1
                         else:
-                            canv.setFont("Helvetica-Bold", 8)
-                            canv.drawCentredString(x_f+w_col/2, y_f+0.15*cm, "X") # Ausencia
+                            canv.setFont("Helvetica-Bold", 8); canv.drawCentredString(x_f+w_col/2, y_f+0.15*cm, "X")
                             t_au += 1
                         x_f += w_col
-                    
-                    # Totales finales de la fila
                     canv.setFont("Helvetica-Bold", 7); canv.rect(x_f, y_f, 1.6*cm, 0.55*cm); canv.drawCentredString(x_f+0.8*cm, y_f+0.15*cm, str(t_as))
                     canv.rect(x_f+1.6*cm, y_f, 1.6*cm, 0.55*cm); canv.drawCentredString(x_f+2.4*cm, y_f+0.15*cm, str(t_au))
                     y_f -= 0.55*cm
-                
-                canv.save()
-                st.download_button("📥 Descargar Reporte", pdf_io.getvalue(), f"Reporte_{gr}.pdf", use_container_width=True)
+                canv.save(); st.download_button("📥 Descargar Reporte", pdf_io.getvalue(), f"Reporte_{gr}.pdf", use_container_width=True)
 
-# --- 5. REINICIO Y PANEL PROGRAMADOR ---
+# --- 5. REINICIO Y PANEL ADMIN ---
 elif menu == "⚙️ Reinicio":
     st.subheader("Mantenimiento")
     if st.button("⚠️ BORRAR MIS DATOS"):
@@ -334,12 +295,12 @@ elif menu == "⚙️ Reinicio":
             if usuarios_data:
                 df_u = pd.DataFrame(usuarios_data)
                 st.dataframe(df_u)
-                st.markdown("### Resetear Clave de Profesor")
+                st.markdown("### Resetear Clave")
                 u_sel = st.selectbox("Seleccione el Profesor:", df_u['usuario'].tolist())
                 n_pass = st.text_input("Nueva clave temporal:", type="password")
                 if st.button("Actualizar Clave"):
                     supabase.table("usuarios").update({"password": hash_password(n_pass)}).eq("usuario", u_sel).execute()
-                    st.success(f"Clave de {u_sel} actualizada correctamente.")
+                    st.success(f"Clave actualizada para {u_sel}.")
 
 if st.sidebar.button("Cerrar Sesión"):
     st.session_state.logueado = False; st.rerun()
