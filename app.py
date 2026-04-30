@@ -14,10 +14,12 @@ from reportlab.lib.units import cm
 from streamlit_qrcode_scanner import qrcode_scanner
 
 # ==============================================================================
-# PROYECTO: EduAsistencia-Pro
-# VERSIÓN: 2.1.0
-# DESARROLLADOR: [Rubén Darío Ávila Sandoval]
-# COPYRIGHT: © 2026 Todos los derechos reservados
+# --- CONSTANTES GLOBALES (Mover al inicio del archivo) ---
+APP_NAME = "EduAsistencia-Pro"
+APP_VERSION = "v2.1.0"
+DEVELOPER_NAME = "Tu Nombre Aquí" # <-- Pon tu nombre aquí
+IE_INITIALS = "I.E. S.A.P."
+COLEGIO = "Institución Educativa San Antonio de Padua" # Valor por defecto
 # ==============================================================================
 
 # --- INTEGRACIÓN CON MÓDULOS ---
@@ -310,9 +312,17 @@ elif menu == "⚙️ Reinicio":
                     st.success(f"Clave actualizada para {u_sel}.")
 # --- PIE DE PÁGINA GLOBAL ---
 st.markdown("---")
-st.markdown(
-    f"<p style='text-align: center; color: grey; font-size: 0.8rem;'><b>{APP_NAME} {APP_VERSION}</b> | Desarrollado por <b>{DEVELOPER_NAME}</b> | &copy; 2026</p>", 
-    unsafe_allow_html=True
-)
-if st.sidebar.button("Cerrar Sesión"):
-    st.session_state.logueado = False; st.rerun()
+footer_html = f"""
+    <div style='text-align: center; color: grey; font-size: 0.8rem;'>
+        <b>{APP_NAME}</b> {APP_VERSION} | 
+        Desarrollado por <b>{DEVELOPER_NAME}</b> | 
+        &copy; 2026
+    </div>
+"""
+st.markdown(footer_html, unsafe_allow_html=True)
+
+# El botón de cerrar sesión debe ir al final
+if st.session_state.logueado:
+    if st.sidebar.button("Cerrar Sesión"):
+        st.session_state.logueado = False
+        st.rerun()
