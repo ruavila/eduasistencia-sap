@@ -304,20 +304,3 @@ elif menu == "⚙️ Reinicio":
 
 if st.sidebar.button("Cerrar Sesión"):
     st.session_state.logueado = False; st.rerun()
-
-# --- NUEVO ---
-# --- NAVEGACIÓN Y CRÉDITOS ---
-menu = st.sidebar.radio("Navegación", ["📚 Cursos", "👤 Estudiantes", "📷 Scanner QR", "📊 Reportes", "⚙️ Reinicio"])
-
-# Añade esto justo debajo del menú en el sidebar
-st.sidebar.divider()
-st.sidebar.markdown(
-    """
-    <div style='text-align: center; color: #6b7280; font-size: 0.8rem;'>
-        © 2026 <b>Tu Nombre Aquí</b><br>
-        Desarrollador de Software<br>
-        <i>Todos los derechos reservados</i>
-    </div>
-    """, 
-    unsafe_allow_html=True
-)
