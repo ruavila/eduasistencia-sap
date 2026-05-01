@@ -217,25 +217,29 @@ elif menu == "👤 Estudiantes":
 # --- 3. SCANNER QR Y LISTA MANUAL ---
 elif menu == "📷 Scanner QR":
     st.subheader("Captura de Asistencia")
+    
+    # Inicializar estado si no existe
+    if 'captura_finalizada' not in st.session_state:
+        st.session_state.captura_finalizada = False
+
     cursos = supabase.table("cursos").select("grado, materia").eq("profe_id", st.session_state.user).execute().data
     
     if cursos:
         sel_as = st.selectbox("Curso:", [f"{r['grado']} | {r['materia']}" for r in cursos])
         ga, ma = sel_as.split(" | ")
-        tema = st.text_input("Tema de la clase:")
+        tema = st.text_input("Tema de la clase:", placeholder="Ej: Introducción a Multimedia")
         
         if tema:
-            # Pestañas para separar el Scanner del Plan B (Número de lista)
             tab_qr, tab_lista = st.tabs(["📷 Escáner QR", "🔢 Número de Lista"])
             
             with tab_qr:
-                # --- TU CÓDIGO ORIGINAL DE SCANNER (SIN CAMBIOS) ---
                 if not st.session_state.captura_finalizada:
                     if st.button("⏹️ Finalizar y Ver Ausentes", type="primary", use_container_width=True):
                         st.session_state.captura_finalizada = True
                         st.rerun()
                     
-                    cod = qrcode_scanner(key=f"sc_{ga}")
+                    # --- LÓGICA DE SCANNER QR ---
+                    cod = qrcode_scanner(key=f"sc_{ga}_{tema}")
                     if cod:
                         id_cl = "".join(filter(str.isalnum, str(cod)))
                         res = supabase.table("estudiantes").select("documento, nombre").ilike("documento", f"%{id_cl}%").eq("grado", ga).eq("profe_id", st.session_state.user).execute().data
@@ -249,27 +253,44 @@ elif menu == "📷 Scanner QR":
                                     "grado": ga, "materia": ma, "tema": tema, "profe_id": st.session_state.user
                                 }).execute()
                                 st.success(f"Registrado: {nom}")
-                
-                # Aquí continúa tu lógica de mostrar ausentes y botón de WhatsApp si captura_finalizada es True
-                # ... (mantén el resto de tu código de ausentes igual)
+                else:
+                    # --- LÓGICA DE AUSENTES Y WHATSAPP ---
+                    if st.button("🔄 Volver a escanear / Limpiar", use_container_width=True):
+                        st.session_state.captura_finalizada = False
+                        st.rerun()
+
+                    st.warning("⚠️ Estudiantes Ausentes:")
+                    hoy = datetime.now().strftime("%Y-%m-%d")
+                    # Obtener todos los del curso vs los que asistieron
+                    todos = supabase.table("estudiantes").select("documento, nombre, whatsapp").eq("grado", ga).eq("profe_id", st.session_state.user).execute().data
+                    asistieron = supabase.table("asistencia").select("estudiante_id").eq("grado", ga).eq("fecha", hoy).eq("tema", tema).execute().data
+                    ids_asistieron = [a['estudiante_id'] for a in asistieron]
+                    
+                    ausentes = [e for e in todos if e['documento'] not in ids_asistieron]
+                    
+                    if ausentes:
+                        for aus in ausentes:
+                            col_a, col_b = st.columns([3, 1])
+                            col_a.write(f"❌ {aus['nombre']}")
+                            # Generar link de WhatsApp
+                            msg = f"Hola, le informamos que el estudiante {aus['nombre']} no asistió hoy a la clase de {ma}. Tema: {tema}."
+                            link_wa = f"https://wa.me/57{aus['whatsapp']}?text={msg.replace(' ', '%20')}"
+                            col_b.markdown(f"[📲 Notificar]({link_wa})")
+                    else:
+                        st.success("¡Asistencia completa! No hay ausentes.")
 
             with tab_lista:
-                st.markdown("### Registro Manual")
-                # Obtenemos estudiantes ordenados alfabéticamente para asignar el número de lista
+                st.info("Registro Manual (Plan B)")
                 estudiantes = supabase.table("estudiantes").select("documento, nombre").eq("grado", ga).eq("profe_id", st.session_state.user).order("nombre").execute().data
                 
                 if estudiantes:
-                    num_input = st.number_input("Número de lista del estudiante:", min_value=1, max_value=len(estudiantes), step=1)
-                    
+                    num_input = st.number_input("Número de lista:", min_value=1, max_value=len(estudiantes), step=1)
                     if st.button("✅ Registrar por Número", use_container_width=True):
-                        # Selección basada en el índice de la lista (n-1)
                         est_sel = estudiantes[num_input - 1]
                         doc_m, nom_m = est_sel['documento'], est_sel['nombre']
                         hoy_m = datetime.now().strftime("%Y-%m-%d")
                         
-                        # Verificación para no duplicar si ya se escaneó con QR
                         check_m = supabase.table("asistencia").select("id").eq("estudiante_id", doc_m).eq("fecha", hoy_m).eq("tema", tema).execute().data
-                        
                         if not check_m:
                             supabase.table("asistencia").insert({
                                 "estudiante_id": doc_m, "fecha": hoy_m, "hora": datetime.now().strftime("%H:%M:%S"), 
@@ -277,9 +298,7 @@ elif menu == "📷 Scanner QR":
                             }).execute()
                             st.success(f"Asistencia marcada: {num_input}. {nom_m}")
                         else:
-                            st.warning(f"El estudiante {nom_m} ya tiene asistencia registrada.")
-                else:
-                    st.warning("No hay estudiantes registrados en este curso.")
+                            st.warning(f"Ya registrado: {nom_m}")
 # --- 4. REPORTES (CON SOLUCIÓN DE ESCUDO TRANSPARENTE) ---
 elif menu == "📊 Reportes":
     st.subheader("Reportes Detallados")
