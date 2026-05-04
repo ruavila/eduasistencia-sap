@@ -229,7 +229,9 @@ elif menu == "📷 Scanner QR":
         # Selección de curso y definición de tema
         sel_as = st.selectbox("Curso:", [f"{r['grado']} | {r['materia']}" for r in cursos], key="sel_curso_scan")
         ga, ma = sel_as.split(" | ")
-        tema = st.text_input("Tema de la clase:", placeholder="Ej: Introducción a la Multimedia")
+        # Limpieza automática del tema para evitar errores de espacios
+        tema_input = st.text_input("Tema de la clase:", placeholder="Ej: Introducción a la Multimedia")
+        tema = tema_input.strip() 
         
         if tema:
             # Pestañas para organizar el Scanner y el Plan B
@@ -242,22 +244,21 @@ elif menu == "📷 Scanner QR":
                         st.session_state.captura_finalizada = True
                         st.rerun()
                     
-                    # --- LÓGICA DEL SCANNER QR CORREGIDA ---
-                    # Key estática basada en el grado para evitar que la cámara se reinicie al escribir
+                    # Key estática basada en el grado para estabilidad
                     cod = qrcode_scanner(key=f"scanner_fijo_{ga}") 
                     
                     if cod:
-                        # 1. Limpieza absoluta del código (quitar espacios o caracteres invisibles)
+                        # Limpieza del código leído
                         id_cl = "".join(filter(str.isalnum, str(cod))).strip()
                         
-                        # 2. BÚSQUEDA EXACTA (.eq) para evitar confusión de nombres
+                        # Búsqueda EXACTA
                         res = supabase.table("estudiantes").select("documento, nombre").eq("documento", id_cl).eq("grado", ga).eq("profe_id", st.session_state.user).execute().data
                         
                         if res:
                             doc, nom = res[0]['documento'], res[0]['nombre']
                             hoy = datetime.now().strftime("%Y-%m-%d")
                             
-                            # 3. Verificación de duplicados para el mismo tema/día
+                            # Verificación de duplicados con tema limpio
                             check = supabase.table("asistencia").select("id").eq("estudiante_id", doc).eq("fecha", hoy).eq("tema", tema).execute().data
                             
                             if not check:
@@ -270,7 +271,6 @@ elif menu == "📷 Scanner QR":
                                     "tema": tema, 
                                     "profe_id": st.session_state.user
                                 }).execute()
-                                # Toast para feedback rápido sin interrumpir la cámara
                                 st.toast(f"✅ Registrado: {nom}", icon="👤")
                             else:
                                 st.toast(f"ℹ️ {nom} ya está en la lista", icon="✅")
@@ -278,7 +278,7 @@ elif menu == "📷 Scanner QR":
                             st.toast("⚠️ Estudiante no encontrado en este curso", icon="❌")
                 
                 else:
-                    # SECCIÓN DE AUSENTES Y REINICIO
+                    # SECCIÓN DE AUSENTES (Sincronizada con el registro)
                     if st.button("🔄 Volver a escanear / Limpiar", use_container_width=True):
                         st.session_state.captura_finalizada = False
                         st.rerun()
@@ -286,21 +286,24 @@ elif menu == "📷 Scanner QR":
                     st.warning("⚠️ Estudiantes Ausentes:")
                     hoy = datetime.now().strftime("%Y-%m-%d")
                     
-                    # Obtener todos los del grado y comparar con los que asistieron
+                    # 1. Obtener todos los del grado
                     todos = supabase.table("estudiantes").select("documento, nombre, whatsapp").eq("grado", ga).eq("profe_id", st.session_state.user).execute().data
-                    asistieron = supabase.table("asistencia").select("estudiante_id").eq("grado", ga).eq("fecha", hoy).eq("tema", tema).execute().data
-                    ids_asistieron = [a['estudiante_id'] for a in asistieron]
                     
-                    ausentes = [e for e in todos if e['documento'] not in ids_asistieron]
+                    # 2. Obtener asistencias usando EXACTAMENTE el mismo tema y fecha
+                    asistieron = supabase.table("asistencia").select("estudiante_id").eq("grado", ga).eq("fecha", hoy).eq("tema", tema).eq("profe_id", st.session_state.user).execute().data
+                    
+                    # 3. Limpiar IDs para comparación segura
+                    ids_asistieron = [str(a['estudiante_id']).strip() for a in asistieron]
+                    
+                    # 4. Filtrar ausentes
+                    ausentes = [e for e in todos if str(e['documento']).strip() not in ids_asistieron]
                     
                     if ausentes:
                         saludo = "Buenos días" if datetime.now().hour < 12 else "Buenas tardes"
-                        
                         for aus in ausentes:
                             col_a, col_b = st.columns([3, 1])
                             col_a.write(f"❌ {aus['nombre']}")
                             
-                            # Mensaje Formal Institucional
                             cuerpo_msj = (
                                 f"{saludo}, señor(a) padre de familia o acudiente. "
                                 f"La Institución Educativa San Antonio de Padua le informa que el estudiante "
@@ -311,7 +314,6 @@ elif menu == "📷 Scanner QR":
                                 f"Área: {ma}"
                             )
                             
-                            # Codificación para WhatsApp
                             msg_encoded = cuerpo_msj.replace(" ", "%20").replace("\n", "%0A")
                             link_wa = f"https://wa.me/57{aus['whatsapp']}?text={msg_encoded}"
                             col_b.markdown(f"[📲 Notificar]({link_wa})")
@@ -320,19 +322,16 @@ elif menu == "📷 Scanner QR":
 
             with tab_lista:
                 st.info("Registro por Número de Lista (Plan B)")
-                # Estudiantes ordenados alfabéticamente
                 est_lista = supabase.table("estudiantes").select("documento, nombre").eq("grado", ga).eq("profe_id", st.session_state.user).order("nombre").execute().data
                 
                 if est_lista:
                     num_input = st.number_input("Número de lista:", min_value=1, max_value=len(est_lista), step=1, key="num_manual")
                     
                     if st.button("✅ Registrar por Número", use_container_width=True):
-                        # Selección por índice (n-1)
                         est_sel = est_lista[num_input - 1]
                         doc_m, nom_m = est_sel['documento'], est_sel['nombre']
                         hoy_m = datetime.now().strftime("%Y-%m-%d")
                         
-                        # Verificación duplicado manual
                         check_m = supabase.table("asistencia").select("id").eq("estudiante_id", doc_m).eq("fecha", hoy_m).eq("tema", tema).execute().data
                         
                         if not check_m:
