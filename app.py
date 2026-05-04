@@ -287,12 +287,35 @@ elif menu == "📷 Scanner QR":
                     ids_asistieron = [str(a['estudiante_id']).strip() for a in asistieron]
                     ausentes = [e for e in todos if str(e['documento']).strip() not in ids_asistieron]
                     
-                    if ausentes:
-                        saludo = "Buenos días" if datetime.now().hour < 12 else "Buenas tardes"
+                   if ausentes:
+                        # --- MEJORA DE SALUDO Y HORA ---
+                        ahora = datetime.now()
+                        hora_reporte = ahora.strftime("%I:%M %p")
+                        
+                        if ahora.hour < 12:
+                            saludo = "Buenos días"
+                        elif 12 <= ahora.hour < 18:
+                            saludo = "Buenas tardes"
+                        else:
+                            saludo = "Buenas noches"
+                        
                         for aus in ausentes:
                             col_a, col_b = st.columns([3, 1])
                             col_a.write(f"❌ {aus['nombre']}")
-                            cuerpo_msj = (f"{saludo}, padre de familia. El estudiante {aus['nombre']} no asistió a {ma}. Tema: {tema}.")
+                            
+                            # Cuerpo del mensaje con la hora y saludo dinámico
+                            cuerpo_msj = (
+                                f"{saludo}, señor(a) padre de familia o acudiente. "
+                                f"La Institución Educativa San Antonio de Padua le informa que el estudiante "
+                                f"{aus['nombre']} no se presentó el día de hoy a la clase de {ma}. \n\n"
+                                f"⏰ *Hora de reporte:* {hora_reporte}\n"
+                                f"📚 *Tema tratado:* {tema}. \n\n"
+                                f"Institucionalmente,\n"
+                                f"Docente: {st.session_state.profe_nom}\n"
+                                f"Área: {ma}"
+                            )
+                            
+                            # Codificación para WhatsApp
                             msg_encoded = cuerpo_msj.replace(" ", "%20").replace("\n", "%0A")
                             link_wa = f"https://wa.me/57{aus['whatsapp']}?text={msg_encoded}"
                             col_b.markdown(f"[📲 Notificar]({link_wa})")
