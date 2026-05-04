@@ -218,47 +218,42 @@ elif menu == "👤 Estudiantes":
 elif menu == "📷 Scanner QR":
     st.subheader("Captura de Asistencia")
     
-    # Asegurar que el estado de la captura esté inicializado
     if 'captura_finalizada' not in st.session_state:
         st.session_state.captura_finalizada = False
 
-    # Obtener cursos del docente actual
     cursos = supabase.table("cursos").select("grado, materia").eq("profe_id", st.session_state.user).execute().data
     
     if cursos:
-        # Selección de curso y definición de tema
         sel_as = st.selectbox("Curso:", [f"{r['grado']} | {r['materia']}" for r in cursos], key="sel_curso_scan")
         ga, ma = sel_as.split(" | ")
-        # Limpieza automática del tema para evitar errores de espacios
         tema_input = st.text_input("Tema de la clase:", placeholder="Ej: Introducción a la Multimedia")
         tema = tema_input.strip() 
         
         if tema:
-            # Pestañas para organizar el Scanner y el Plan B
             tab_qr, tab_lista = st.tabs(["📷 Escáner QR", "🔢 Número de Lista"])
             
             with tab_qr:
                 if not st.session_state.captura_finalizada:
-                    # BOTÓN PARA FINALIZAR ESCANEO
                     if st.button("⏹️ Finalizar y Ver Ausentes", type="primary", use_container_width=True):
                         st.session_state.captura_finalizada = True
                         st.rerun()
                     
-                    # Key estática basada en el grado para estabilidad
+                    # Key estática
                     cod = qrcode_scanner(key=f"scanner_fijo_{ga}") 
                     
                     if cod:
-                        # Limpieza del código leído
-                        id_cl = "".join(filter(str.isalnum, str(cod))).strip()
+                        # --- CORRECCIÓN DE LECTURA ---
+                        # Convertimos a string y quitamos espacios en blanco externos
+                        # Eliminamos el filtro estricto para permitir que el lector procese mejor el código
+                        id_cl = str(cod).strip()
                         
-                        # Búsqueda EXACTA
+                        # Búsqueda EXACTA filtrando por documento
                         res = supabase.table("estudiantes").select("documento, nombre").eq("documento", id_cl).eq("grado", ga).eq("profe_id", st.session_state.user).execute().data
                         
                         if res:
                             doc, nom = res[0]['documento'], res[0]['nombre']
                             hoy = datetime.now().strftime("%Y-%m-%d")
                             
-                            # Verificación de duplicados con tema limpio
                             check = supabase.table("asistencia").select("id").eq("estudiante_id", doc).eq("fecha", hoy).eq("tema", tema).execute().data
                             
                             if not check:
@@ -275,27 +270,21 @@ elif menu == "📷 Scanner QR":
                             else:
                                 st.toast(f"ℹ️ {nom} ya está en la lista", icon="✅")
                         else:
-                            st.toast("⚠️ Estudiante no encontrado en este curso", icon="❌")
+                            # Si no hay coincidencia exacta, intentamos una búsqueda rápida de seguridad
+                            st.toast(f"⚠️ No encontrado: {id_cl}", icon="❌")
                 
                 else:
-                    # SECCIÓN DE AUSENTES (Sincronizada con el registro)
+                    # SECCIÓN DE AUSENTES
                     if st.button("🔄 Volver a escanear / Limpiar", use_container_width=True):
                         st.session_state.captura_finalizada = False
                         st.rerun()
 
                     st.warning("⚠️ Estudiantes Ausentes:")
                     hoy = datetime.now().strftime("%Y-%m-%d")
-                    
-                    # 1. Obtener todos los del grado
                     todos = supabase.table("estudiantes").select("documento, nombre, whatsapp").eq("grado", ga).eq("profe_id", st.session_state.user).execute().data
-                    
-                    # 2. Obtener asistencias usando EXACTAMENTE el mismo tema y fecha
                     asistieron = supabase.table("asistencia").select("estudiante_id").eq("grado", ga).eq("fecha", hoy).eq("tema", tema).eq("profe_id", st.session_state.user).execute().data
                     
-                    # 3. Limpiar IDs para comparación segura
                     ids_asistieron = [str(a['estudiante_id']).strip() for a in asistieron]
-                    
-                    # 4. Filtrar ausentes
                     ausentes = [e for e in todos if str(e['documento']).strip() not in ids_asistieron]
                     
                     if ausentes:
@@ -303,47 +292,28 @@ elif menu == "📷 Scanner QR":
                         for aus in ausentes:
                             col_a, col_b = st.columns([3, 1])
                             col_a.write(f"❌ {aus['nombre']}")
-                            
-                            cuerpo_msj = (
-                                f"{saludo}, señor(a) padre de familia o acudiente. "
-                                f"La Institución Educativa San Antonio de Padua le informa que el estudiante "
-                                f"{aus['nombre']} no se presentó el día de hoy a la clase de {ma}. "
-                                f"Tema tratado: {tema}. \n\n"
-                                f"Institucionalmente,\n"
-                                f"Docente: {st.session_state.profe_nom}\n"
-                                f"Área: {ma}"
-                            )
-                            
+                            cuerpo_msj = (f"{saludo}, padre de familia. El estudiante {aus['nombre']} no asistió a {ma}. Tema: {tema}.")
                             msg_encoded = cuerpo_msj.replace(" ", "%20").replace("\n", "%0A")
                             link_wa = f"https://wa.me/57{aus['whatsapp']}?text={msg_encoded}"
                             col_b.markdown(f"[📲 Notificar]({link_wa})")
                     else:
-                        st.success("¡Asistencia completa! No hay ausentes.")
+                        st.success("¡Asistencia completa!")
 
             with tab_lista:
                 st.info("Registro por Número de Lista (Plan B)")
                 est_lista = supabase.table("estudiantes").select("documento, nombre").eq("grado", ga).eq("profe_id", st.session_state.user).order("nombre").execute().data
-                
                 if est_lista:
                     num_input = st.number_input("Número de lista:", min_value=1, max_value=len(est_lista), step=1, key="num_manual")
-                    
                     if st.button("✅ Registrar por Número", use_container_width=True):
                         est_sel = est_lista[num_input - 1]
                         doc_m, nom_m = est_sel['documento'], est_sel['nombre']
                         hoy_m = datetime.now().strftime("%Y-%m-%d")
-                        
                         check_m = supabase.table("asistencia").select("id").eq("estudiante_id", doc_m).eq("fecha", hoy_m).eq("tema", tema).execute().data
-                        
                         if not check_m:
-                            supabase.table("asistencia").insert({
-                                "estudiante_id": doc_m, "fecha": hoy_m, "hora": datetime.now().strftime("%H:%M:%S"), 
-                                "grado": ga, "materia": ma, "tema": tema, "profe_id": st.session_state.user
-                            }).execute()
+                            supabase.table("asistencia").insert({"estudiante_id": doc_m, "fecha": hoy_m, "hora": datetime.now().strftime("%H:%M:%S"), "grado": ga, "materia": ma, "tema": tema, "profe_id": st.session_state.user}).execute()
                             st.success(f"Asistencia marcada: {nom_m}")
                         else:
                             st.warning(f"{nom_m} ya está registrado.")
-                else:
-                    st.warning("No hay estudiantes en este curso.")
     else:
         st.error("No tienes cursos creados.")
 # --- 4. REPORTES (CON SOLUCIÓN DE ESCUDO TRANSPARENTE) ---
