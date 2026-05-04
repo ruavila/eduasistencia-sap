@@ -214,7 +214,7 @@ elif menu == "👤 Estudiantes":
             st.success(f"Se generaron carnets para {len(df)} estudiantes en formato Carta.")
             st.download_button("📥 Descargar Carnets", pdf.getvalue(), f"Carnets_{gs}.pdf")
 
-#...from datetime import datetime, timedelta  # <--- ESTA LÍNEA ES VITAL AL INICIO
+from datetime import datetime, timedelta  # <--- ESTA LÍNEA ES VITAL AL INICIO
 
 # --- 3. SCANNER QR Y LISTA MANUAL ---
 elif menu == "📷 Scanner QR":
