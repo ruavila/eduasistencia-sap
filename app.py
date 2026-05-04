@@ -214,8 +214,6 @@ elif menu == "👤 Estudiantes":
             st.success(f"Se generaron carnets para {len(df)} estudiantes en formato Carta.")
             st.download_button("📥 Descargar Carnets", pdf.getvalue(), f"Carnets_{gs}.pdf")
 
-from datetime import datetime, timedelta  # <--- ESTA LÍNEA ES VITAL AL INICIO
-
 # --- 3. SCANNER QR Y LISTA MANUAL ---
 elif menu == "📷 Scanner QR":
     st.subheader("Captura de Asistencia")
@@ -248,21 +246,13 @@ elif menu == "📷 Scanner QR":
                         
                         if res:
                             doc, nom = res[0]['documento'], res[0]['nombre']
-                            # AJUSTE HORA COLOMBIA
-                            ahora_ahora = datetime.now() - timedelta(hours=5)
-                            hoy = ahora_ahora.strftime("%Y-%m-%d")
-                            
+                            hoy = datetime.now().strftime("%Y-%m-%d")
                             check = supabase.table("asistencia").select("id").eq("estudiante_id", doc).eq("fecha", hoy).eq("tema", tema).execute().data
                             
                             if not check:
                                 supabase.table("asistencia").insert({
-                                    "estudiante_id": doc, 
-                                    "fecha": hoy, 
-                                    "hora": ahora_ahora.strftime("%H:%M:%S"), 
-                                    "grado": ga, 
-                                    "materia": ma, 
-                                    "tema": tema, 
-                                    "profe_id": st.session_state.user
+                                    "estudiante_id": doc, "fecha": hoy, "hora": datetime.now().strftime("%H:%M:%S"), 
+                                    "grado": ga, "materia": ma, "tema": tema, "profe_id": st.session_state.user
                                 }).execute()
                                 st.toast(f"✅ Registrado: {nom}", icon="👤")
                             else:
@@ -271,26 +261,26 @@ elif menu == "📷 Scanner QR":
                             st.toast(f"⚠️ No encontrado: {id_cl}", icon="❌")
                 
                 else:
+                    # SECCIÓN DE AUSENTES CON MEJORA DE MENSAJE
                     if st.button("🔄 Volver a escanear / Limpiar", use_container_width=True):
                         st.session_state.captura_finalizada = False
                         st.rerun()
 
                     st.warning("⚠️ Estudiantes Ausentes:")
+                    hoy = datetime.now().strftime("%Y-%m-%d")
                     
-                    # LÓGICA DE TIEMPO COLOMBIA
-                    ahora_col = datetime.now() - timedelta(hours=5)
-                    hoy_col = ahora_col.strftime("%Y-%m-%d")
-                    hora_reporte = ahora_col.strftime("%I:%M %p")
-                    
-                    if ahora_col.hour < 12:
+                    # Lógica de tiempo para el mensaje
+                    ahora = datetime.now()
+                    hora_reporte = ahora.strftime("%I:%M %p")
+                    if ahora.hour < 12:
                         saludo = "Buenos días"
-                    elif 12 <= ahora_col.hour < 18:
+                    elif 12 <= ahora.hour < 18:
                         saludo = "Buenas tardes"
                     else:
                         saludo = "Buenas noches"
 
                     todos = supabase.table("estudiantes").select("documento, nombre, whatsapp").eq("grado", ga).eq("profe_id", st.session_state.user).execute().data
-                    asistieron = supabase.table("asistencia").select("estudiante_id").eq("grado", ga).eq("fecha", hoy_col).eq("tema", tema).eq("profe_id", st.session_state.user).execute().data
+                    asistieron = supabase.table("asistencia").select("estudiante_id").eq("grado", ga).eq("fecha", hoy).eq("tema", tema).eq("profe_id", st.session_state.user).execute().data
                     
                     ids_asistieron = [str(a['estudiante_id']).strip() for a in asistieron]
                     ausentes = [e for e in todos if str(e['documento']).strip() not in ids_asistieron]
@@ -320,24 +310,15 @@ elif menu == "📷 Scanner QR":
             with tab_lista:
                 st.info("Registro por Número de Lista (Plan B)")
                 est_lista = supabase.table("estudiantes").select("documento, nombre").eq("grado", ga).eq("profe_id", st.session_state.user).order("nombre").execute().data
-                
                 if est_lista:
                     num_input = st.number_input("Número de lista:", min_value=1, max_value=len(est_lista), step=1, key="num_manual")
-                    
                     if st.button("✅ Registrar por Número", use_container_width=True):
                         est_sel = est_lista[num_input - 1]
                         doc_m, nom_m = est_sel['documento'], est_sel['nombre']
-                        
-                        # AJUSTE HORA COLOMBIA PLAN B
-                        ahora_m = datetime.now() - timedelta(hours=5)
-                        hoy_m = ahora_m.strftime("%Y-%m-%d")
-                        
+                        hoy_m = datetime.now().strftime("%Y-%m-%d")
                         check_m = supabase.table("asistencia").select("id").eq("estudiante_id", doc_m).eq("fecha", hoy_m).eq("tema", tema).execute().data
                         if not check_m:
-                            supabase.table("asistencia").insert({
-                                "estudiante_id": doc_m, "fecha": hoy_m, "hora": ahora_m.strftime("%H:%M:%S"), 
-                                "grado": ga, "materia": ma, "tema": tema, "profe_id": st.session_state.user
-                            }).execute()
+                            supabase.table("asistencia").insert({"estudiante_id": doc_m, "fecha": hoy_m, "hora": datetime.now().strftime("%H:%M:%S"), "grado": ga, "materia": ma, "tema": tema, "profe_id": st.session_state.user}).execute()
                             st.success(f"Asistencia marcada: {nom_m}")
                         else:
                             st.warning(f"{nom_m} ya está registrado.")
