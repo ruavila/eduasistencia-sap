@@ -227,7 +227,7 @@ elif menu == "📷 Scanner QR":
     
     if cursos:
         # Selección de curso y definición de tema
-        sel_as = st.selectbox("Curso:", [f"{r['grado']} | {r['materia']}" for r in cursos])
+        sel_as = st.selectbox("Curso:", [f"{r['grado']} | {r['materia']}" for r in cursos], key="sel_curso_scan")
         ga, ma = sel_as.split(" | ")
         tema = st.text_input("Tema de la clase:", placeholder="Ej: Introducción a la Multimedia")
         
@@ -237,31 +237,46 @@ elif menu == "📷 Scanner QR":
             
             with tab_qr:
                 if not st.session_state.captura_finalizada:
+                    # BOTÓN PARA FINALIZAR ESCANEO
                     if st.button("⏹️ Finalizar y Ver Ausentes", type="primary", use_container_width=True):
                         st.session_state.captura_finalizada = True
                         st.rerun()
                     
-                    # --- CAMBIO AQUÍ: KEY ESTABILIZADA ---
-                    # Usamos solo el grado en la key para que el escáner no se reinicie mientras escribes el tema
-                    cod = qrcode_scanner(key=f"scanner_estatico_{ga}") 
+                    # --- LÓGICA DEL SCANNER QR CORREGIDA ---
+                    # Key estática basada en el grado para evitar que la cámara se reinicie al escribir
+                    cod = qrcode_scanner(key=f"scanner_fijo_{ga}") 
                     
                     if cod:
-                        id_cl = "".join(filter(str.isalnum, str(cod)))
-                        res = supabase.table("estudiantes").select("documento, nombre").ilike("documento", f"%{id_cl}%").eq("grado", ga).eq("profe_id", st.session_state.user).execute().data
+                        # 1. Limpieza absoluta del código (quitar espacios o caracteres invisibles)
+                        id_cl = "".join(filter(str.isalnum, str(cod))).strip()
+                        
+                        # 2. BÚSQUEDA EXACTA (.eq) para evitar confusión de nombres
+                        res = supabase.table("estudiantes").select("documento, nombre").eq("documento", id_cl).eq("grado", ga).eq("profe_id", st.session_state.user).execute().data
                         
                         if res:
                             doc, nom = res[0]['documento'], res[0]['nombre']
                             hoy = datetime.now().strftime("%Y-%m-%d")
                             
-                            # Evitar duplicados
+                            # 3. Verificación de duplicados para el mismo tema/día
                             check = supabase.table("asistencia").select("id").eq("estudiante_id", doc).eq("fecha", hoy).eq("tema", tema).execute().data
+                            
                             if not check:
                                 supabase.table("asistencia").insert({
-                                    "estudiante_id": doc, "fecha": hoy, "hora": datetime.now().strftime("%H:%M:%S"), 
-                                    "grado": ga, "materia": ma, "tema": tema, "profe_id": st.session_state.user
+                                    "estudiante_id": doc, 
+                                    "fecha": hoy, 
+                                    "hora": datetime.now().strftime("%H:%M:%S"), 
+                                    "grado": ga, 
+                                    "materia": ma, 
+                                    "tema": tema, 
+                                    "profe_id": st.session_state.user
                                 }).execute()
-                                # Cambiamos st.success por st.toast para un feedback más fluido sin recargar la página
-                                st.toast(f"✅ Registrado: {nom}")
+                                # Toast para feedback rápido sin interrumpir la cámara
+                                st.toast(f"✅ Registrado: {nom}", icon="👤")
+                            else:
+                                st.toast(f"ℹ️ {nom} ya está en la lista", icon="✅")
+                        else:
+                            st.toast("⚠️ Estudiante no encontrado en este curso", icon="❌")
+                
                 else:
                     # SECCIÓN DE AUSENTES Y REINICIO
                     if st.button("🔄 Volver a escanear / Limpiar", use_container_width=True):
@@ -271,7 +286,7 @@ elif menu == "📷 Scanner QR":
                     st.warning("⚠️ Estudiantes Ausentes:")
                     hoy = datetime.now().strftime("%Y-%m-%d")
                     
-                    # Comparación de listas para hallar ausentes
+                    # Obtener todos los del grado y comparar con los que asistieron
                     todos = supabase.table("estudiantes").select("documento, nombre, whatsapp").eq("grado", ga).eq("profe_id", st.session_state.user).execute().data
                     asistieron = supabase.table("asistencia").select("estudiante_id").eq("grado", ga).eq("fecha", hoy).eq("tema", tema).execute().data
                     ids_asistieron = [a['estudiante_id'] for a in asistieron]
@@ -280,10 +295,12 @@ elif menu == "📷 Scanner QR":
                     
                     if ausentes:
                         saludo = "Buenos días" if datetime.now().hour < 12 else "Buenas tardes"
+                        
                         for aus in ausentes:
                             col_a, col_b = st.columns([3, 1])
                             col_a.write(f"❌ {aus['nombre']}")
                             
+                            # Mensaje Formal Institucional
                             cuerpo_msj = (
                                 f"{saludo}, señor(a) padre de familia o acudiente. "
                                 f"La Institución Educativa San Antonio de Padua le informa que el estudiante "
@@ -294,36 +311,42 @@ elif menu == "📷 Scanner QR":
                                 f"Área: {ma}"
                             )
                             
+                            # Codificación para WhatsApp
                             msg_encoded = cuerpo_msj.replace(" ", "%20").replace("\n", "%0A")
                             link_wa = f"https://wa.me/57{aus['whatsapp']}?text={msg_encoded}"
                             col_b.markdown(f"[📲 Notificar]({link_wa})")
                     else:
-                        st.success("¡Asistencia completa! No se reportan ausentes.")
+                        st.success("¡Asistencia completa! No hay ausentes.")
 
             with tab_lista:
                 st.info("Registro por Número de Lista (Plan B)")
-                estudiantes = supabase.table("estudiantes").select("documento, nombre").eq("grado", ga).eq("profe_id", st.session_state.user).order("nombre").execute().data
+                # Estudiantes ordenados alfabéticamente
+                est_lista = supabase.table("estudiantes").select("documento, nombre").eq("grado", ga).eq("profe_id", st.session_state.user).order("nombre").execute().data
                 
-                if estudiantes:
-                    num_input = st.number_input("Número de lista:", min_value=1, max_value=len(estudiantes), step=1)
+                if est_lista:
+                    num_input = st.number_input("Número de lista:", min_value=1, max_value=len(est_lista), step=1, key="num_manual")
+                    
                     if st.button("✅ Registrar por Número", use_container_width=True):
-                        est_sel = estudiantes[num_input - 1]
+                        # Selección por índice (n-1)
+                        est_sel = est_lista[num_input - 1]
                         doc_m, nom_m = est_sel['documento'], est_sel['nombre']
                         hoy_m = datetime.now().strftime("%Y-%m-%d")
                         
+                        # Verificación duplicado manual
                         check_m = supabase.table("asistencia").select("id").eq("estudiante_id", doc_m).eq("fecha", hoy_m).eq("tema", tema).execute().data
+                        
                         if not check_m:
                             supabase.table("asistencia").insert({
                                 "estudiante_id": doc_m, "fecha": hoy_m, "hora": datetime.now().strftime("%H:%M:%S"), 
                                 "grado": ga, "materia": ma, "tema": tema, "profe_id": st.session_state.user
                             }).execute()
-                            st.success(f"Asistencia marcada manualmente: {num_input}. {nom_m}")
+                            st.success(f"Asistencia marcada: {nom_m}")
                         else:
-                            st.warning(f"El estudiante {nom_m} ya cuenta con registro de asistencia.")
+                            st.warning(f"{nom_m} ya está registrado.")
                 else:
-                    st.warning("No se encontraron estudiantes registrados para este curso.")
+                    st.warning("No hay estudiantes en este curso.")
     else:
-        st.error("No tienes cursos asignados. Por favor, crea un curso primero.")
+        st.error("No tienes cursos creados.")
 # --- 4. REPORTES (CON SOLUCIÓN DE ESCUDO TRANSPARENTE) ---
 elif menu == "📊 Reportes":
     st.subheader("Reportes Detallados")
