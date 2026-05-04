@@ -221,6 +221,7 @@ elif menu == "📷 Scanner QR":
     if 'captura_finalizada' not in st.session_state:
         st.session_state.captura_finalizada = False
 
+    # Obtener cursos del docente actual
     cursos = supabase.table("cursos").select("grado, materia").eq("profe_id", st.session_state.user).execute().data
     
     if cursos:
@@ -246,12 +247,15 @@ elif menu == "📷 Scanner QR":
                         
                         if res:
                             doc, nom = res[0]['documento'], res[0]['nombre']
-                            hoy = datetime.now().strftime("%Y-%m-%d")
+                            # Hora para registro en base de datos (Colombia)
+                            ahora_db = datetime.now() - timedelta(hours=5)
+                            hoy = ahora_db.strftime("%Y-%m-%d")
+                            
                             check = supabase.table("asistencia").select("id").eq("estudiante_id", doc).eq("fecha", hoy).eq("tema", tema).execute().data
                             
                             if not check:
                                 supabase.table("asistencia").insert({
-                                    "estudiante_id": doc, "fecha": hoy, "hora": datetime.now().strftime("%H:%M:%S"), 
+                                    "estudiante_id": doc, "fecha": hoy, "hora": ahora_db.strftime("%H:%M:%S"), 
                                     "grado": ga, "materia": ma, "tema": tema, "profe_id": st.session_state.user
                                 }).execute()
                                 st.toast(f"✅ Registrado: {nom}", icon="👤")
@@ -261,20 +265,21 @@ elif menu == "📷 Scanner QR":
                             st.toast(f"⚠️ No encontrado: {id_cl}", icon="❌")
                 
                 else:
-                    # SECCIÓN DE AUSENTES CON MEJORA DE MENSAJE
+                    # SECCIÓN DE AUSENTES CON CORRECCIÓN DE HORA COLOMBIA
                     if st.button("🔄 Volver a escanear / Limpiar", use_container_width=True):
                         st.session_state.captura_finalizada = False
                         st.rerun()
 
                     st.warning("⚠️ Estudiantes Ausentes:")
-                    hoy = datetime.now().strftime("%Y-%m-%d")
                     
-                    # Lógica de tiempo para el mensaje
-                    ahora = datetime.now()
-                    hora_reporte = ahora.strftime("%I:%M %p")
-                    if ahora.hour < 12:
+                    # --- Lógica de tiempo ajustada a Colombia (UTC-5) ---
+                    ahora_col = datetime.now() - timedelta(hours=5)
+                    hoy = ahora_col.strftime("%Y-%m-%d")
+                    hora_reporte = ahora_col.strftime("%I:%M %p")
+                    
+                    if ahora_col.hour < 12:
                         saludo = "Buenos días"
-                    elif 12 <= ahora.hour < 18:
+                    elif 12 <= ahora_col.hour < 18:
                         saludo = "Buenas tardes"
                     else:
                         saludo = "Buenas noches"
@@ -315,10 +320,16 @@ elif menu == "📷 Scanner QR":
                     if st.button("✅ Registrar por Número", use_container_width=True):
                         est_sel = est_lista[num_input - 1]
                         doc_m, nom_m = est_sel['documento'], est_sel['nombre']
-                        hoy_m = datetime.now().strftime("%Y-%m-%d")
+                        
+                        ahora_m = datetime.now() - timedelta(hours=5)
+                        hoy_m = ahora_m.strftime("%Y-%m-%d")
+                        
                         check_m = supabase.table("asistencia").select("id").eq("estudiante_id", doc_m).eq("fecha", hoy_m).eq("tema", tema).execute().data
                         if not check_m:
-                            supabase.table("asistencia").insert({"estudiante_id": doc_m, "fecha": hoy_m, "hora": datetime.now().strftime("%H:%M:%S"), "grado": ga, "materia": ma, "tema": tema, "profe_id": st.session_state.user}).execute()
+                            supabase.table("asistencia").insert({
+                                "estudiante_id": doc_m, "fecha": hoy_m, "hora": ahora_m.strftime("%H:%M:%S"), 
+                                "grado": ga, "materia": ma, "tema": tema, "profe_id": st.session_state.user
+                            }).execute()
                             st.success(f"Asistencia marcada: {nom_m}")
                         else:
                             st.warning(f"{nom_m} ya está registrado.")
