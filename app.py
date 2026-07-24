@@ -391,190 +391,208 @@ elif menu == "📷 Scanner QR":
     else:
         st.error("No tienes cursos creados. Ve a la sección de Configuración.")
 # ==============================================================================
-# --- 4. SECCIÓN DE REPORTES (PDF DIRECTO, SIN PREVISUALIZACIÓN) ---
+# --- 4. SECCIÓN DE REPORTES (PDF DETALLADO POR PERIODO - FORMATO INSTITUCIONAL) ---
 # ==============================================================================
 elif menu == "📊 Reportes":
-    # 1. Importaciones necesarias (asumiendo que fpdf ya está instalado)
+    # 1. Importaciones necesarias (se mueven aquí para mayor orden)
+    import streamlit as st
     from fpdf import FPDF
     import datetime as dt
     import time
     from io import BytesIO
+    import pandas as pd # Necesario para procesar la cuadrícula
 
-    # Función auxiliar para formatear la fecha a dd/mm/aaaa
-    def formatear_fecha(fecha_str):
-        if not fecha_str: return "Sin fecha"
+    # Función auxiliar para formatear la fecha a dd/mm (para el encabezado de columna)
+    def formatear_fecha_corta(fecha_str):
+        if not fecha_str: return ""
         try:
             # Supabase devuelve AAAA-MM-DD
             fecha_obj = dt.datetime.strptime(fecha_str, "%Y-%m-%d")
-            return fecha_obj.strftime("%d/%m/%Y")
+            return fecha_obj.strftime("%d/%m")
         except ValueError:
-            return fecha_str
+            return ""
 
-    st.subheader("Generación de Reportes de Asistencia (PDF)")
+    st.subheader("Generación de Reportes de Asistencia Detallado (PDF)")
 
     # 1. Consulta de cursos vinculados al docente
     cursos = supabase.table("cursos").select("grado, materia").eq("profe_id", st.session_state.user).execute().data
 
     if cursos:
-        # Interfaz de selección simple
-        col_r1, col_r2 = st.columns([2, 1])
+        # --- INTERFAZ DE FILTROS ACTUALIZADA ---
+        col_r1, col_r2, col_r3 = st.columns([2, 1, 1])
 
         with col_r1:
             sel_as_rep = st.selectbox("Seleccione el Curso:", [f"{r['grado']} | {r['materia']}" for r in cursos], key="sel_curso_rep")
             ga_rep, ma_rep = sel_as_rep.split(" | ")
 
         with col_r2:
-            st.write("") # Espaciadores para alinear el botón verticalmente
+            # --- NUEVO: Selección obligatoria del Periodo ---
+            periodo_rep = st.number_input("Filtrar por Periodo:", min_value=1, max_value=4, value=1, step=1, key="num_periodo_rep")
+
+        with col_r3:
+            st.write("") # Espaciadores para alinear el botón
             st.write("")
             btn_generar = st.button("📊 Generar Reporte PDF", type="primary", use_container_width=True)
 
-        # 2. Lógica al presionar el botón (Generar y Descargar directamente)
+        # 2. Lógica al presionar el botón
         if btn_generar:
             # Feedback visual de carga
-            with st.spinner(f"Generando PDF para {ga_rep} ({ma_rep})..."):
+            with st.spinner(f"Generando cuadrícula detallada de {ga_rep} ({ma_rep}) - Periodo {periodo_rep}..."):
                 
-                # --- CONSULTAS A SUPABASE ---
+                # --- CONSULTAS A SUPABASE CON FILTRO DE PERIODO ---
                 
                 # A. Traer todos los estudiantes de ese grado
                 todos_est = supabase.table("estudiantes").select("documento, nombre")\
                     .eq("grado", ga_rep)\
                     .eq("profe_id", st.session_state.user).order("nombre").execute().data
 
-                # B. Traer TODOS los registros de asistencia de ese curso (para calcular la última)
-                asistencia_data = supabase.table("asistencia").select("estudiante_id, fecha")\
+                # B. Traer TODOS los registros de asistencia de ese curso Y PERIODO (ordenados por fecha)
+                asistencia_data = supabase.table("asistencia").select("estudiante_id, fecha, tema")\
                     .eq("grado", ga_rep)\
                     .eq("materia", ma_rep)\
+                    .eq("periodo", periodo_rep)\
                     .eq("profe_id", st.session_state.user).order("fecha").execute().data
 
             if todos_est:
                 # ==========================================================
-                # --- GENERACIÓN DEL REPORTE PDF CON FPDF ---
+                # --- PROCESAMIENTO DE DATOS PARA LA CUADRÍCULA (TIPO SÁBANA) ---
                 # ==========================================================
                 
-                # Crear objeto PDF (Vertical, mm, A4)
-                pdf = FPDF('P', 'mm', 'A4')
-                pdf.add_page()
-                pdf.set_margins(15, 15, 15) # Márgenes de 1.5 cm
+                # Crear un conjunto único de (Fecha, Tema) para las columnas
+                # Esto nos dará todas las clases dadas en ese periodo
+                temas_fechas = sorted(list(set([(a['fecha'], a['tema']) for a in asistencia_data])), key=lambda x: x[0])
                 
-                # --- ENCABEZADO ---
-                pdf.set_font("Arial", 'B', 16)
-                pdf.cell(0, 10, "REPORTE DE ASISTENCIA INDIVIDUAL", 0, 1, 'C')
+                # Inicializar el diccionario de datos para la sábana
+                # Columnas fijas iniciales
+                matriz_data = {
+                    'N°': [],
+                    'ESTUDIANTE': []
+                }
                 
-                pdf.set_font("Arial", '', 12)
-                # pdf.cell(0, 8, "Institución Educativa San Antonio de Padua", 0, 1, 'C') # Opcional
-                pdf.ln(5) # Espacio
+                # Crear columnas dinámicas (ej: "12/04\nTema X")
+                for fecha_raw, tema_raw in temas_fechas:
+                    fecha_fmt = formatear_fecha_corta(fecha_raw)
+                    # El encabezado será de dos líneas para el PDF
+                    encabezado_col = f"{tema_raw}\n{fecha_fmt}"
+                    matriz_data[encabezado_col] = []
+                    
+                # Columnas fijas finales
+                matriz_data['Asist'] = []
+                matriz_data['Ausen.'] = []
                 
-                # Datos del Reporte
-                pdf.set_font("Arial", 'B', 11)
-                pdf.cell(35, 7, "Docente:", 0, 0)
-                pdf.set_font("Arial", '', 11)
-                pdf.cell(0, 7, st.session_state.profe_nom, 0, 1)
+                # Llenar la matriz estudiante por estudiante
+                count_est = 1
+                for est in todos_est:
+                    id_est = est['documento']
+                    matriz_data['N°'].ko_add(str(count_est))
+                    # Limpiar nombre para PDF (latin-1)
+                    try:
+                        nombre_latin = est['nombre'].encode('latin-1', 'ignore').decode('latin-1')
+                        matriz_data['ESTUDIANTE'].add(nombre_latin)
+                    except:
+                        matriz_data['ESTUDIANTE'].add(est['nombre'])
+                    
+                    cont_asist = 0
+                    cont_ausen = 0
+                    
+                    # Iterar sobre cada clase (columna dinámica)
+                    for fecha_raw, tema_raw in temas_fechas:
+                        fecha_fmt = formatear_fecha_corta(fecha_raw)
+                        encabezado_col = f"{tema_raw}\n{fecha_fmt}"
+                        
+                        # Buscar si este estudiante asistió a ESTA clase específica (fecha y tema)
+                        # Nota: Si usas Opción B (tabla periodos), el filtro de tema es menos necesario
+                        check_asist = [a for a in asistencia_data if a['estudiante_id'] == id_est and a['fecha'] == fecha_raw and a['tema'] == tema_raw]
+                        
+                        if check_asist:
+                            matriz_data[encabezado_col].add('Π') # Presente (Código latin-1 aprox para el cuadrado)
+                            cont_asist += 1
+                        else:
+                            matriz_data[encabezado_col].add('X') # Ausente
+                            cont_ausen += 1
+                            
+                    # Llenar totales
+                    matriz_data['Asist'].add(str(cont_asist))
+                    matriz_data['Ausen.'].add(str(cont_ausen))
+                    count_est += 1
 
-                pdf.set_font("Arial", 'B', 11)
-                pdf.cell(35, 7, "Curso / Grado:", 0, 0)
-                pdf.set_font("Arial", '', 11)
-                pdf.cell(0, 7, f"{ga_rep} | {ma_rep}", 0, 1)
+                # ==========================================================
+                # --- GENERACIÓN DEL REPORTE PDF CON FPDF (RECREANDO EL FORMATO) ---
+                # ==========================================================
                 
-                pdf.set_font("Arial", 'B', 11)
-                pdf.cell(35, 7, "Fecha de Gen.:", 0, 0)
+                # Crear objeto PDF (Horizontal L, mm, A4 - para que quepan las columnas)
+                pdf = FPDF('L', 'mm', 'A4')
+                pdf.add_page()
+                pdf.set_margins(10, 10, 10)
+                
+                # --- ENCABEZADO IDÉNTICO AL ANTERIOR ---
+                # Institución
+                pdf.set_font("Arial", 'B', 14)
+                pdf.cell(0, 10, "Institución Educativa San Antonio de Padua", 0, 1, 'C')
+                
+                # Datos de la clase
                 pdf.set_font("Arial", '', 11)
+                # Fila 1
+                pdf.cell(100, 7, f"Materia: {ma_rep}", 0, 0)
+                pdf.cell(80, 7, f"Grado: {ga_rep}", 0, 0)
+                pdf.cell(0, 7, f"Docente: {st.session_state.profe_nom}", 0, 1)
+                
+                # Fila 2 (Añadido el Periodo)
+                pdf.set_font("Arial", 'B', 11)
                 # Hora Colombia (UTC-5)
                 ahora_co = dt.datetime.now() - dt.timedelta(hours=5)
-                pdf.cell(0, 7, ahora_co.strftime("%d/%m/%Y %H:%M"), 0, 1)
+                pdf.cell(100, 7, f"Fecha Reporte: {ahora_co.strftime('%d/%m/%Y %H:%M')}", 0, 0)
+                pdf.cell(0, 7, f"Periodo Académico: {periodo_rep}", 0, 1)
                 
-                pdf.ln(10) # Espacio antes de la tabla
+                pdf.ln(5) # Espacio
 
-                # --- TABLA DE DATOS ---
+                # --- TABLA DE DATOS (CUADRÍCULA SÁBANA) ---
                 
-                # Definir anchos de columna (suman 180mm para márgenes de 15mm en A4)
-                anchos = [15, 75, 45, 45] 
+                # 1. DEFINIR ANCHOS DE COLUMNA (CRÍTICO)
+                # Ancho disponible aprox 277mm (A4 horizontal con márgenes)
+                # Anchos fijos iniciales y finales
+                w_num = 10
+                w_est = 60
+                w_totales = 15 # Ancho para Asist y Ausen.
                 
-                # Encabezados de la tabla
-                pdf.set_font("Arial", 'B', 10)
+                # Calcular ancho dinámico para las clases
+                num_clases = len(temas_fechas)
+                ancho_usado_fijo = w_num + w_est + (w_totales * 2)
+                ancho_disponible_dinamico = 277 - ancho_usado_fijo
+                
+                if num_clases > 0:
+                    w_clase = ancho_disponible_dinamico / num_clases
+                else:
+                    w_clase = ancho_disponible_dinamico # Ocurre si no hay asistencias
+
+                # 2. ENCABEZADOS DE LA TABLA (DOS LÍNEAS)
+                pdf.set_font("Arial", 'B', 9)
                 
                 # Fondo gris suave para el encabezado (R, G, B)
                 pdf.set_fill_color(240, 240, 240) 
                 
-                pdf.cell(anchos[0], 8, "N°", 1, 0, 'C', 1)
-                pdf.cell(anchos[1], 8, "Nombre del Estudiante", 1, 0, 'C', 1)
-                pdf.cell(anchos[2], 8, "Documento", 1, 0, 'C', 1)
-                pdf.cell(anchos[3], 8, "Última Asistencia", 1, 1, 'C', 1)
-
-                # Contenido de la tabla
-                pdf.set_font("Arial", '', 10)
+                # Fila 1 del encabezado (N°, ESTUDIANTE, Temas, Totales)
+                # Usamos MultiCell para permitir el salto de línea en los temas
+                x_start = pdf.get_x()
+                y_start = pdf.get_y()
                 
-                count = 1
-                for est in todos_est:
-                    # Lógica para encontrar la ÚLTIMA asistencia de este estudiante
-                    asistencias_est = [a for a in asistencia_data if a['estudiante_id'] == est['documento']]
+                # Columnas Fijas Iniciales (una línea)
+                pdf.cell(w_num, 14, "N°", 1, 0, 'C', 1) # Alto 14 para ocupar dos líneas
+                pdf.cell(w_est, 14, "ESTUDIANTE", 1, 0, 'C', 1)
+                
+                # Columnas Dinámicas (MultiCell para dos líneas)
+                for fecha_raw, tema_raw in temas_fechas:
+                    fecha_fmt = formatear_fecha_corta(fecha_raw)
+                    encabezado_completo = f"{tema_raw}\n{fecha_fmt}"
+                    # Guardar posición actual
+                    x_col = pdf.get_x()
+                    y_col = pdf.get_y()
                     
-                    if asistencias_est:
-                        # Tomamos la última de la lista (ya que ordenamos por fecha en Supabase)
-                        ultima_asist = asistencias_est[-1]['fecha']
-                        ultima_fecha_fmt = formatear_fecha(ultima_asist)
-                    else:
-                        # Si no tiene registros
-                        ultima_fecha_fmt = "Sin registros"
-
-                    # Escribir la fila en el PDF
-                    # Usamos 'latin-1' para manejar tildes si la librería FPDF es antigua
-                    pdf.cell(anchos[0], 7, str(count), 1, 0, 'C')
-                    # Convertir a latin-1 para compatibilidad de tildes si es necesario
-                    try:
-                        nombre_latin = est['nombre'].encode('latin-1', 'ignore').decode('latin-1')
-                        pdf.cell(anchos[1], 7, nombre_latin, 1, 0)
-                    except:
-                        pdf.cell(anchos[1], 7, est['nombre'], 1, 0) # Si falla, enviarlo normal
-                        
-                    pdf.cell(anchos[2], 7, est['documento'], 1, 0, 'C')
-                    pdf.cell(anchos[3], 7, ultima_fecha_fmt, 1, 1, 'C')
+                    # MultiCell para el tema (7mm alto cada línea = 14mm total)
+                    pdf.multi_cell(w_clase, 7, encabezado_completo, 1, 'C', 1)
                     
-                    count += 1
-                    
-                    # Salto de página automático si la tabla es muy larga
-                    if pdf.get_y() > 265: 
-                        pdf.add_page()
-                        # Re-imprimir encabezados
-                        pdf.set_font("Arial", 'B', 10)
-                        pdf.set_fill_color(240, 240, 240)
-                        pdf.cell(anchos[0], 8, "N°", 1, 0, 'C', 1)
-                        pdf.cell(anchos[1], 8, "Nombre del Estudiante", 1, 0, 'C', 1)
-                        pdf.cell(anchos[2], 8, "Documento", 1, 0, 'C', 1)
-                        pdf.cell(anchos[3], 8, "Última Asistencia", 1, 1, 'C', 1)
-                        pdf.set_font("Arial", '', 10)
-
-                # ==========================================================
-                # --- PREPARACIÓN DE LA DESCARGA DIRECTA ---
-                # ==========================================================
-                
-                # Guardar el PDF en un objeto de memoria BytesIO
-                # d='S' significa que devuelve el contenido como un string/bytes
-                try:
-                    pdf_output_bytes = pdf.output(dest='S').encode('latin-1')
-                except TypeError:
-                    # Dependiendo de la versión de fpdf, a veces devuelve bytes directamente
-                    pdf_output_bytes = pdf.output(dest='S')
-                
-                # Convertir a BytesIO para Streamlit
-                pdf_file = BytesIO(pdf_output_bytes)
-
-                # Mostrar mensaje de éxito y el botón de descarga inmediatamente
-                st.success(f"📈 Reporte PDF para {ga_rep} - {ma_rep} generado.")
-                
-                # El botón de descarga aparece DIRECTAMENTE, sin previsualizar nada
-                st.download_button(
-                    label="📥 Descargar Reporte PDF Ahora",
-                    data=pdf_file,
-                    file_name=f"Reporte_{ga_rep}_{ma_rep}_{ahora_co.strftime('%Y%m%d_%H%M')}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True
-                )
-
-            else:
-                st.error("Error al consultar los datos de los estudiantes.")
-
-    else:
-        st.error("No tienes cursos creados. Ve a la sección de Configuración.")
+                    # Regresar posición para la siguiente columna (X, Y inicial)
+                    pdf.set_xy(x_col + w_clase, y_col)
 # --- 5. REINICIO Y PANEL ADMIN ---
 elif menu == "⚙️ Reinicio":
     st.subheader("Mantenimiento")
