@@ -393,11 +393,11 @@ elif menu == "📷 Scanner QR":
 # ==============================================================================
 # --- 4. SECCIÓN DE REPORTES (PDF DETALLADO POR PERIODO - FORMATO INSTITUCIONAL) ---
 elif menu == "📊 Reportes":
-    # Importaciones necesarias para esta sección
+    # Importaciones necesarias para esta sección (fpdf2, pandas, datetime, io)
     from fpdf import FPDF
     import pandas as pd
     import datetime as dt
-    from io import BytesIO
+    import io
 
     # Función auxiliar para formatear la fecha a dd/mm/aaaa (para el PDF)
     def formatear_fecha_corta(fecha_str):
@@ -422,8 +422,8 @@ elif menu == "📊 Reportes":
             ga_rep, ma_rep = sel_as_rep.split(" | ")
 
         with col_r2:
-            # --- NUEVO: Selección obligatoria del Periodo ---
-            periodo_rep = st.number_input("Filtrar por Periodo:", min_value=1, max_value=4, value=1, step=1, key="num_periodo_rep")
+            # Selección obligatoria del Periodo
+            periodo_rep = st.number_input("Filtrar por Periodo Académico:", min_value=1, max_value=4, value=1, step=1, key="num_periodo_rep")
 
         with col_r3:
             st.write("") # Espaciadores
@@ -432,15 +432,15 @@ elif menu == "📊 Reportes":
 
         # 2. Lógica al presionar el botón (Generar PDF Directo)
         if btn_generar:
-            with st.spinner(f"Generando cuadrícula de {ga_rep} ({ma_rep}) - Periodo {periodo_rep}..."):
+            with st.spinner(f"Generando sábana detallada de {ga_rep} ({ma_rep}) - Periodo {periodo_rep}..."):
                 # --- CONSULTAS A SUPABASE CON FILTRO DE PERIODO ---
                 
-                # A. Estudiantes del docente (para obtener nombres)
+                # A. Traer todos los estudiantes de ese grado (docente)
                 todos_est = supabase.table("estudiantes").select("documento, nombre")\
                     .eq("grado", ga_rep)\
                     .eq("profe_id", st.session_state.user).order("nombre").execute().data
 
-                # B. Registros de asistencia de ese curso Y PERIODO
+                # B. Traer registros de asistencia de ese curso Y PERIODO
                 asistencia_data = supabase.table("asistencia").select("estudiante_id, fecha, tema")\
                     .eq("grado", ga_rep)\
                     .eq("materia", ma_rep)\
@@ -449,36 +449,47 @@ elif menu == "📊 Reportes":
 
             if todos_est and asistencia_data:
                 # ==========================================================
-                # --- PROCESAMIENTO DE DATOS PARA LA CUADRÍCULA (SÁBANA) ---
+                # --- PROCESAMIENTO DE DATOS CON PANDAS (SÁBANA DETALLADA) ---
                 # ==========================================================
-                
-                # Crear un conjunto único de (Fecha, Tema) para las columnas, ordenadas por fecha
-                df_clases = pd.DataFrame(asistencia_data)[['fecha', 'tema']].drop_duplicates().sort_values('fecha')
-                
-                # Inicializar el DataFrame final con los nombres de los estudiantes (latin-1 compatible)
+                # Crear DataFrame base con todos los estudiantes (mayúsculas y latin-1)
+                df_reporte = pd.DataFrame(todos_est)
+                df_reporte['nombre'] = df_reporte['nombre'].str.upper()
                 try:
-                    todos_est_mayus = [{'documento': e['documento'], 'nombre': e['nombre'].upper()} for e in todos_est]
-                    reporte_final = pd.DataFrame(todos_est_mayus).set_index('documento')
-                    reporte_final['nombre'] = reporte_final['nombre'].str.encode('latin-1', 'ignore').str.decode('latin-1')
+                    # Forzar latin-1 para compatibilidad si hay acentos
+                    df_reporte['nombre'] = df_reporte['nombre'].str.encode('latin-1', 'ignore').str.decode('latin-1')
                 except:
-                    reporte_final = pd.DataFrame(todos_est).set_index('documento')
+                    pass
+                df_reporte = df_reporte.set_index('documento')
                 
-                reporte_final = reporte_final.rename(columns={'nombre': 'ESTUDIANTE'})
+                # Crear DataFrame con asistencias
+                df_asistencia = pd.DataFrame(asistencia_data)
                 
-                # Columnas dinámicas iniciales (ej: "Tema X\n12/04/2026")
+                # Identificar clases únicas (Fecha/Tema) del periodo, ordenadas por fecha
+                df_clases = df_asistencia[['fecha', 'tema']].drop_duplicates().sort_values('fecha')
+                
+                # Construir columnas dinámicas (ej: "Tema X\n12/04/2026")
                 columnas_dinamicas = []
+                # El DataFrame base de los estudiantes es nuestro 'reporte_final'
+                reporte_final = df_reporte.copy()
+
                 for _, clase in df_clases.iterrows():
                     tema_raw = clase['tema']
                     try:
+                        # Forzar latin-1 para el tema también
                         tema_latin = tema_raw.encode('latin-1', 'ignore').decode('latin-1')
                         encabezado_col = f"{tema_latin}\n{formatear_fecha_corta(clase['fecha'])}"
                     except:
                         encabezado_col = f"{tema_raw}\n{formatear_fecha_corta(clase['fecha'])}"
                     
                     columnas_dinamicas.append(encabezado_col)
-                    reporte_final[encabezado_col] = 'X' # Por defecto: Ausente
+                    # Inicializar columna dinámica con 'X' (Ausente) por defecto
+                    # NOTA CRÍTICA: La X ya es latin-1 compatible
+                    reporte_final[encabezado_col] = 'X' 
 
-                # Llenar 'Π' (Presente) y calcular totales
+                # Llenar '✔' (Presente) y calcular totales
+                # El check ✔ requiere codificación latin-1 específica para FPDF (código cuadrado aprox)
+                check_pi_latin = '✔'.encode('latin-1', 'ignore').decode('latin-1')
+                
                 for registro in asistencia_data:
                     id_est = registro['estudiante_id']
                     # Si el estudiante existe (por si acaso)
@@ -492,13 +503,13 @@ elif menu == "📊 Reportes":
                         
                         # Si la columna existe (debería)
                         if col_pi in reporte_final.columns:
-                            # Marcar presente (código latin-1 aprox para cuadrado)
-                            reporte_final.loc[id_est, col_pi] = 'Π'
+                            # Marcar presente (check ✔ corregido)
+                            reporte_final.loc[id_est, col_pi] = check_pi_latin
 
                 # Calcular totales al final de cada fila
                 df_aux = reporte_final[columnas_dinamicas]
-                # Contar 'Π' para Asistencias
-                reporte_final['Asist'] = (df_aux == 'Π').sum(axis=1)
+                # Contar '✔' para Asistencias
+                reporte_final['Asist'] = (df_aux == check_pi_latin).sum(axis=1)
                 # Contar 'X' para Ausencias
                 reporte_final['Ausen.'] = (df_aux == 'X').sum(axis=1)
                 
@@ -506,29 +517,31 @@ elif menu == "📊 Reportes":
                 reporte_final['Asist'] = reporte_final['Asist'].astype(str)
                 reporte_final['Ausen.'] = reporte_final['Ausen.'].astype(str)
                 
-                # Limpiar DataFrame: Nombre como columna, Índice numérico, añadir N°
+                # Limpiar DataFrame: Índice numérico, Nombre como columna 'ESTUDIANTE', añadir N°
                 reporte_final = reporte_final.reset_index()
+                reporte_final = reporte_final.rename(columns={'nombre': 'ESTUDIANTE'})
                 # Añadir columna de N° correlativo
                 reporte_final.insert(0, 'N°', range(1, 1 + len(reporte_final)))
                 # Convertir N° a string
                 reporte_final['N°'] = reporte_final['N°'].astype(str)
 
                 # ==========================================================
-                # --- GENERACIÓN DEL REPORTE PDF CON FPDF (FORMATO SÁBANA HORIZONTAL) ---
+                # --- GENERACIÓN DEL REPORTE PDF CON FPDF2 (FORMATO SÁBANA) ---
                 # ==========================================================
-                
                 # Crear objeto PDF (Horizontal L, mm, A4)
                 pdf = FPDF('L', 'mm', 'A4')
                 pdf.add_page()
                 # Márgenes de 10mm (1cm)
                 pdf.set_margins(10, 10, 10)
                 
-                # --- ENCABEZADO INSTITUCIONAL FIESTA ---
+                # --- ENCABEZADO INSTITUCIONAL ---
+                # Institución
                 pdf.set_font("Arial", 'B', 14)
                 pdf.cell(0, 10, "Institución Educativa San Antonio de Padua", 0, 1, 'C')
                 
+                # Datos de la clase
                 pdf.set_font("Arial", '', 11)
-                # Fila 1 de datos (conservando tu modelo)
+                # Fila 1 (conservando tu modelo)
                 pdf.cell(100, 7, f"Materia: {ma_rep}", 0, 0)
                 pdf.cell(80, 7, f"Grado: {ga_rep}", 0, 0)
                 pdf.cell(0, 7, f"Docente: {st.session_state.profe_nom}", 0, 1)
@@ -537,12 +550,12 @@ elif menu == "📊 Reportes":
                 pdf.set_font("Arial", 'B', 11)
                 ahora_co = dt.datetime.now() - dt.timedelta(hours=5)
                 pdf.cell(100, 7, f"Fecha Reporte: {ahora_co.strftime('%d/%m/%Y %H:%M')}", 0, 0)
+                # CRÍTICO: Indica qué periodo se está consultando
                 pdf.cell(0, 7, f"Periodo Académico Consultando: {periodo_rep}", 0, 1)
                 
                 pdf.ln(5) # Espacio antes de la tabla
 
                 # --- TABLA DE DATOS (CUADRÍCULA SÁBANA) ---
-                
                 # 1. DEFINIR ANCHOS DE COLUMNA (CRÍTICO para Horizontal)
                 # Ancho disponible aprox 277mm (A4 horizontal con márgenes de 10mm)
                 num_clases = len(columnas_dinamicas)
@@ -567,6 +580,7 @@ elif menu == "📊 Reportes":
                 pdf.set_fill_color(240, 240, 240) # Gris suave para encabezado
                 
                 # Fila 1 del encabezado (N°, ESTUDIANTE, Totales ocupan dos líneas)
+                # Usamos Cell con alto 14 para los fijos
                 pdf.cell(w_num, 14, "N°", 1, 0, 'C', 1) 
                 pdf.cell(w_est, 14, "ESTUDIANTE", 1, 0, 'C', 1)
                 
@@ -576,20 +590,13 @@ elif menu == "📊 Reportes":
                 if num_clases > 0:
                     for enc_completo in columnas_dinamicas:
                         # MultiCell para el tema (7mm alto cada línea = 14mm total)
-                        # fpdf1/2 maneja MultiCell para texto de dos líneas
-                        # fpdf1: requiere codificar latin-1 para el tema también
-                        try:
-                            pdf.multi_cell(w_clase, 7, enc_completo, 1, 'C', 1)
-                        except:
-                            # Re-probar sin codificar tema si falla
-                            tema_y_fecha = enc_completo.split('\n')
-                            pdf.multi_cell(w_clase, 7, f"{tema_y_fecha[0]}\n{tema_y_fecha[1]}", 1, 'C', 1)
+                        pdf.multi_cell(w_clase, 7, enc_completo, 1, 'C', 1)
                         
-                        # Regresar posición para la siguiente columna (X, Y inicial)
+                        # Regresar posición para la siguiente columna (X, Y inicial de encabezado)
                         x_col += w_clase
                         pdf.set_xy(x_col, y_col)
                 else:
-                     pdf.cell(ancho_disponible_dinamico, 14, "Sin registros", 1, 0, 'C', 1)
+                     pdf.cell(ancho_disponible_dinamico, 14, "Sin registros de asistencia en este periodo", 1, 0, 'C', 1)
 
                 # Columnas Fijas Finales (alto 14mm)
                 pdf.cell(w_totales, 14, "Asist", 1, 0, 'C', 1)
@@ -599,20 +606,18 @@ elif menu == "📊 Reportes":
                 # Restablecemos fuente normal
                 pdf.set_font("Arial", '', 9)
                 
-                # Iterar sobre cada fila del DataFrame final
+                # Iterar sobre las filas del DataFrame final
                 for _, fila in reporte_final.iterrows():
                     # Fila por estudiante
                     pdf.cell(w_num, 8, fila['N°'], 1, 0, 'C')
                     # Nombre ya está en latin-1
                     pdf.cell(w_est, 8, fila['ESTUDIANTE'], 1, 0)
                     
-                    # Iterar sobre las clases dinámicas
+                    # Iterar sobre las clases dinámicas (usando la lista que guardamos)
                     if num_clases > 0:
                         for col_din in columnas_dinamicas:
-                            # Símbolo Presente (Π) o Ausente (X)
+                            # Símbolo Presente (✔ corregido latin-1) o Ausente (X)
                             simbolo = fila[col_din]
-                            # Asegurar codificación latin-1 para Π (código cuadrado aprox)
-                            if simbolo == 'Π': simbolo = simbolo.encode('latin-1', 'ignore').decode('latin-1')
                             pdf.cell(w_clase, 8, simbolo, 1, 0, 'C')
                     else:
                         pdf.cell(ancho_disponible_dinamico, 8, "", 1, 0)
@@ -622,30 +627,59 @@ elif menu == "📊 Reportes":
                     pdf.cell(w_totales, 8, fila['Ausen.'], 1, 1, 'C') # Salto de línea
                     
                     # Salto de página automático si la tabla es muy larga
-                    if pdf.get_y() > 185: # Ajuste de margen inferior aprox para horizontal
+                    # Ajuste de margen inferior para horizontal aprox 185mm
+                    if pdf.get_y() > 185: 
                         pdf.add_page()
-                        # Re-imprimir encabezados (Misma lógica anterior omitida por brevedad, pero es copiar el bloque)
-                        # Regresamos a fuente normal
+                        # Re-imprimir encabezados
+                        pdf.set_font("Arial", 'B', 9)
+                        pdf.set_fill_color(240, 240, 240)
+                        # N°, Estudiante, Totales (alto 14mm)
+                        pdf.cell(w_num, 14, "N°", 1, 0, 'C', 1) 
+                        pdf.cell(w_est, 14, "ESTUDIANTE", 1, 0, 'C', 1)
+                        # Clases Dinámicas (MultiCell)
+                        if num_clases > 0:
+                            x_col_pg = pdf.get_x()
+                            y_col_pg = pdf.get_y()
+                            for enc_completo_pg in columnas_dinamicas:
+                                pdf.multi_cell(w_clase, 7, enc_completo_pg, 1, 'C', 1)
+                                x_col_pg += w_clase
+                                pdf.set_xy(x_col_pg, y_col_pg)
+                        # Totales Finales (alto 14mm)
+                        pdf.cell(w_totales, 14, "Asist", 1, 0, 'C', 1)
+                        pdf.cell(w_totales, 14, "Ausen.", 1, 1, 'C', 1)
+                        # Regresar a fuente normal
                         pdf.set_font("Arial", '', 9)
 
                 # ==========================================================
-                # --- PREPARACIÓN DE LA DESCARGA DIRECTA (BytesIO) ---
+                # --- PREPARACIÓN DEL PDF EN MEMORIA (SOLUCIÓN DEFINITIVA ATTRIBUTERROR) ---
                 # ==========================================================
                 
-                # Guardar el PDF en memoria y devolver bytes
-                try:
-                    pdf_output_bytes = pdf.output(dest='S').encode('latin-1')
-                except TypeError:
-                    # fpdf2 devuelve bytes directamente
-                    pdf_output_bytes = pdf.output(dest='S')
-                
-                # Convertir a BytesIO para Streamlit
-                pdf_file = BytesIO(pdf_output_bytes)
-
                 # feedback visual
-                st.success(f"📈 Reporte detallado (sábana P{periodo_rep}) generado para {ga_rep} - {ma_rep}.")
+                st.info(f"📉 Sábana detallada (P{periodo_rep}) generada correctamente para {ga_rep} - {ma_rep}.")
                 
-                # Botón de descarga DIRECTA (sin previsualización)
+                # --- SOLUCIÓN CRÍTICA AL ATTRIBUTEERROR ---
+                # Guardar el PDF en memoria y forzar la codificación LATIN-1
+                try:
+                    # Dependiendo de la versión de fpdf2, dest='S' puede devolver bytes o string
+                    output_mem = pdf.output(dest='S')
+                    
+                    # Verificamos si ya es un objeto de bytes
+                    if isinstance(output_mem, bytes):
+                        # Si ya son bytes (fpdf2 moderno), los usamos directamente
+                        pdf_output_bytes = output_mem
+                    else:
+                        # Si es string (fpdf clásico), forzamos la codificación latin-1
+                        pdf_output_bytes = output_mem.encode('latin-1')
+                        
+                except Exception as e:
+                    st.error(f"Error crítico en la codificación del PDF: {e}")
+                    # En Streamlit Cloud, si falla la codificación, no podemos continuar.
+                    st.stop()
+                
+                # Convertir los bytes a un objeto BytesIO para Streamlit
+                pdf_file = io.BytesIO(pdf_output_bytes)
+                
+                # Botón de descarga DIRECTA (sin previsualización de nada)
                 st.download_button(
                     label="📥 Descargar Reporte PDF Detallado (Sábana)",
                     data=pdf_file,
@@ -655,7 +689,7 @@ elif menu == "📊 Reportes":
                 )
 
             elif todos_est and not asistencia_data:
-                st.warning(f"No se encontraron registros de asistencia para {ga_rep} - {ma_rep} en el **Periodo Academicos {periodo_rep}**.")
+                st.warning(f"No se encontraron registros de asistencia para {ga_rep} - {ma_rep} en el **Periodo Académico {periodo_rep}**.")
             else:
                 st.error("Error al consultar los datos de los estudiantes.")
 
