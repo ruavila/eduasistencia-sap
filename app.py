@@ -456,7 +456,7 @@ elif menu == "📊 Reportes":
                 for col in columnas_dinamicas:
                     reporte_final[col] = '❌'
 
-135.                # 3. LÓGICA PARA MARCAR '✅' (ASISTIÓ)
+                # 3. LÓGICA PARA MARCAR '✅' (ASISTIÓ)
                 # Iterar sobre cada registro de asistencia y marcar el DataFrame final
                 for _, fila in df_asistencia.iterrows():
                     id_est = fila['estudiante_id']
