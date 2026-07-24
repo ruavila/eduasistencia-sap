@@ -10,4 +10,4 @@ xlsxwriter
 openpyxl
 streamlit-qrcode-scanner
 supabase
-fpdf
+fpdf2
