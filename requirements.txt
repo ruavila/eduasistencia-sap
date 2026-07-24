@@ -11,3 +11,4 @@ openpyxl
 streamlit-qrcode-scanner
 supabase
 fpdf2
+fpdf
