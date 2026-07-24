@@ -593,6 +593,87 @@ elif menu == "📊 Reportes":
                     
                     # Regresar posición para la siguiente columna (X, Y inicial)
                     pdf.set_xy(x_col + w_clase, y_col)
+                    
+                # Columnas Fijas Finales (una línea)
+                pdf.cell(w_totales, 14, "Asist", 1, 0, 'C', 1)
+                pdf.cell(w_totales, 14, "Ausen.", 1, 1, 'C', 1) # Salto de línea final
+
+                # 3. CONTENIDO DE LA TABLA (FILA POR ESTUDIANTE)
+                pdf.set_font("Arial", '', 9)
+                
+                # Obtener la lista de nombres de columnas dinámicas (para iterar)
+                columnas_dinamicas_nombres = [k for k in matriz_data.keys() if '\n' in k]
+                
+                # Iterar sobre las filas (usando el índice de una de las columnas)
+                num_filas = len(matriz_data['N°'])
+                for i in range(num_filas):
+                    # Fila por estudiante
+                    pdf.cell(w_num, 8, matriz_data['N°'][i], 1, 0, 'C')
+                    pdf.cell(w_est, 8, matriz_data['ESTUDIANTE'][i], 1, 0)
+                    
+                    # Iterar sobre las clases
+                    for col_din in columnas_dinamicas_nombres:
+                        # Cuadrado (Π) o X
+                        simbolo = matriz_data[col_din][i]
+                        # Asegurar compatibilidad latin-1 para Π si es necesario
+                        if simbolo == 'Π': simbolo = simbolo.encode('latin-1', 'ignore').decode('latin-1')
+                        pdf.cell(w_clase, 8, simbolo, 1, 0, 'C')
+                        
+                    # Totales
+                    pdf.cell(w_totales, 8, matriz_data['Asist'][i], 1, 0, 'C')
+                    pdf.cell(w_totales, 8, matriz_data['Ausen.'][i], 1, 1, 'C') # Salto de línea
+                    
+                    # Salto de página automático si la tabla es muy larga
+                    if pdf.get_y() > 185: # Margen inferior aprox para horizontal
+                        pdf.add_page()
+                        # Re-imprimir encabezados
+                        pdf.set_font("Arial", 'B', 9)
+                        pdf.set_fill_color(240, 240, 240)
+                        pdf.cell(w_num, 14, "N°", 1, 0, 'C', 1)
+                        pdf.cell(w_est, 14, "ESTUDIANTE", 1, 0, 'C', 1)
+                        for fecha_raw, tema_raw in temas_fechas:
+                            encabezado_completo = f"{tema_raw}\n{formatear_fecha_corta(fecha_raw)}"
+                            x_col = pdf.get_x()
+                            y_col = pdf.get_y()
+                            pdf.multi_cell(w_clase, 7, encabezado_completo, 1, 'C', 1)
+                            pdf.set_xy(x_col + w_clase, y_col)
+                        pdf.cell(w_totales, 14, "Asist", 1, 0, 'C', 1)
+                        pdf.cell(w_totales, 14, "Ausen.", 1, 1, 'C', 1)
+                        pdf.set_font("Arial", '', 9)
+
+                # ==========================================================
+                # --- PREPARACIÓN DE LA DESCARGA DIRECTA ---
+                # ==========================================================
+                
+                # Guardar el PDF en memoria
+                try:
+                    pdf_output_bytes = pdf.output(dest='S').encode('latin-1')
+                except TypeError:
+                    # Dependiendo de la versión de fpdf
+                    pdf_output_bytes = pdf.output(dest='S')
+                
+                # Convertir a BytesIO
+                pdf_file = BytesIO(pdf_output_bytes)
+
+                # Mensaje de éxito
+                st.success(f"📈 Sábana detallada de asistencia (P{periodo_rep}) para {ga_rep} - {ma_rep} generada.")
+                
+                # Botón de descarga DIRECTA (sin previsualización)
+                st.download_button(
+                    label="📥 Descargar Reporte PDF Detallado (Sábana)",
+                    data=pdf_file,
+                    file_name=f"Sabana_Asistencia_{ga_rep}_{ma_rep}_P{periodo_rep}_{ahora_co.strftime('%Y%M%d_%H%M')}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+
+            elif todos_est and not asistencia_data:
+                st.warning(f"No se encontraron registros de asistencia para {ga_rep} - {ma_rep} en el **Periodo {periodo_rep}**.")
+            else:
+                st.error("Error al consultar los datos de los estudiantes.")
+
+    else:
+        st.error("No tienes cursos creados. Ve a la sección de Configuración.")
 # --- 5. REINICIO Y PANEL ADMIN ---
 elif menu == "⚙️ Reinicio":
     st.subheader("Mantenimiento")
