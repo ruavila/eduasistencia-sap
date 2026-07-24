@@ -651,30 +651,17 @@ elif menu == "📊 Reportes":
                         pdf.set_font("Arial", '', 9)
 
                 # ==========================================================
-                # --- PREPARACIÓN DEL PDF EN MEMORIA (SOLUCIÓN DEFINITIVA ATTRIBUTERROR) ---
+                # --- PREPARACIÓN DEL PDF EN MEMORIA (SOLUCIÓN DEFINITIVA 'bytearray') ---
                 # ==========================================================
                 
                 # feedback visual
                 st.info(f"📉 Sábana detallada (P{periodo_rep}) generada correctamente para {ga_rep} - {ma_rep}.")
                 
-                # --- SOLUCIÓN CRÍTICA AL ATTRIBUTEERROR ---
-                # Guardar el PDF en memoria y forzar la codificación LATIN-1
-                try:
-                    # Dependiendo de la versión de fpdf2, dest='S' puede devolver bytes o string
-                    output_mem = pdf.output(dest='S')
-                    
-                    # Verificamos si ya es un objeto de bytes
-                    if isinstance(output_mem, bytes):
-                        # Si ya son bytes (fpdf2 moderno), los usamos directamente
-                        pdf_output_bytes = output_mem
-                    else:
-                        # Si es string (fpdf clásico), forzamos la codificación latin-1
-                        pdf_output_bytes = output_mem.encode('latin-1')
-                        
-                except Exception as e:
-                    st.error(f"Error crítico en la codificación del PDF: {e}")
-                    # En Streamlit Cloud, si falla la codificación, no podemos continuar.
-                    st.stop()
+                # --- CORRECCIÓN CRÍTICA ---
+                # Con fpdf2 instalado, output(dest='S') ya devuelve directamente bytes (bytearray).
+                # No intentamos codificarlo con .encode('latin-1').
+                
+                pdf_output_bytes = pdf.output(dest='S')
                 
                 # Convertir los bytes a un objeto BytesIO para Streamlit
                 pdf_file = io.BytesIO(pdf_output_bytes)
