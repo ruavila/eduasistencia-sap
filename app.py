@@ -390,7 +390,8 @@ elif menu == "📷 Scanner QR":
                             st.warning(f"{nom_m} ya está registrado hoy en P{periodo_actual}.")
     else:
         st.error("No tienes cursos creados. Ve a la sección de Configuración.")
-#--- 4. SECCIÓN DE REPORTES (ACTUALIZADO PARA FILTRAR POR PERIODO) ---
+# ==============================================================================
+# --- 4. SECCIÓN DE REPORTES (ACTUALIZADO PARA FILTRAR POR PERIODO) ---
 # ==============================================================================
 elif menu == "📊 Reportes":
     import pandas as pd
