@@ -390,78 +390,120 @@ elif menu == "📷 Scanner QR":
                             st.warning(f"{nom_m} ya está registrado hoy en P{periodo_actual}.")
     else:
         st.error("No tienes cursos creados. Ve a la sección de Configuración.")
-# --- 4. REPORTES (CON SOLUCIÓN DE ESCUDO TRANSPARENTE) ---
+--- 4. SECCIÓN DE REPORTES (ACTUALIZADO PARA FILTRAR POR PERIODO) ---
+# ==============================================================================
 elif menu == "📊 Reportes":
-    st.subheader("Reportes Detallados")
+    import pandas as pd
+    import datetime as dt
+    st.subheader("Generación de Reportes de Asistencia")
+
+    # 1. Consulta de cursos vinculados al docente
     cursos = supabase.table("cursos").select("grado, materia").eq("profe_id", st.session_state.user).execute().data
+
     if cursos:
-        sel_r = st.selectbox("Curso:", [f"{r['grado']} | {r['materia']}" for r in cursos])
-        gr, mr = sel_r.split(" | ")
-        if st.button("📄 Generar Planilla PDF", type="primary", use_container_width=True):
-            ests_db = supabase.table("estudiantes").select("documento, nombre").eq("grado", gr).eq("profe_id", st.session_state.user).order("nombre").execute().data
-            asist_db = supabase.table("asistencia").select("estudiante_id, fecha, tema").eq("grado", gr).eq("profe_id", st.session_state.user).execute().data
-            ests = pd.DataFrame(ests_db) if ests_db else pd.DataFrame()
-            asist = pd.DataFrame(asist_db) if asist_db else pd.DataFrame()
-            
-            if not ests.empty:
-                clases = asist[['fecha', 'tema']].drop_duplicates().sort_values(by='fecha').values.tolist() if not asist.empty else []
-                pdf_io = io.BytesIO(); canv = canvas.Canvas(pdf_io, pagesize=landscape(legal))
-                ancho, alto = landscape(legal); mrg = 1.0*cm
-                
-                # --- LÓGICA DE ESCUDO CON MÁSCARA DE TRANSPARENCIA ---
-                if os.path.exists(ESCUDO_PATH):
-                    try:
-                        img_pil = Image.open(ESCUDO_PATH).convert("RGBA")
-                        r, g, b, a = img_pil.split()
-                        img_rgb = Image.merge("RGB", (r, g, b))
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as f_rgb:
-                            img_rgb.save(f_rgb.name, format="PNG")
-                            path_rgb = f_rgb.name
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as f_a:
-                            a.save(f_a.name, format="PNG")
-                            path_a = f_a.name
-                        canv.drawImage(path_rgb, mrg, alto-2.5*cm, width=2.2*cm, height=2.2*cm, mask=path_a)
-                        os.remove(path_rgb); os.remove(path_a)
-                    except:
-                        pass
-                
-                canv.setFont("Helvetica-Bold", 14); canv.drawCentredString(ancho/2, alto-1.2*cm, COLEGIO)
-                canv.setFont("Helvetica", 9); canv.drawString(mrg+2.5*cm, alto-1.7*cm, f"Materia: {mr} | Grado: {gr} | Docente: {st.session_state.profe_nom}")
-                w_nom, n_cl = 7.5*cm, len(clases)
-                w_col = min(max((ancho - (mrg*2) - w_nom - 3.2*cm) / n_cl, 1.5*cm), 3.5*cm) if n_cl > 0 else 1.5*cm
-                y_f = alto-4.2*cm
-                canv.rect(mrg, y_f, w_nom, 1.2*cm); canv.setFont("Helvetica-Bold", 8); canv.drawCentredString(mrg+w_nom/2, y_f+0.5*cm, "ESTUDIANTE")
-                x_h = mrg+w_nom
-                for f, t in clases:
-                    canv.rect(x_h, y_f, w_col, 1.2*cm); canv.setFont("Helvetica-Bold", 6)
-                    canv.drawCentredString(x_h+w_col/2, y_f+0.85*cm, f"{str(t)[:15]}")
-                    canv.setFont("Helvetica", 6); canv.drawCentredString(x_h+w_col/2, y_f+0.25*cm, f"{f}")
-                    x_h += w_col
-                canv.rect(x_h, y_f, 1.6*cm, 1.2*cm); canv.drawCentredString(x_h+0.8*cm, y_f+0.5*cm, "Asist.")
-                canv.rect(x_h+1.6*cm, y_f, 1.6*cm, 1.2*cm); canv.drawCentredString(x_h+2.4*cm, y_f+0.5*cm, "Ausen.")
-                
-                y_f -= 0.55*cm
-                for i, est in ests.iterrows():
-                    if y_f < 2*cm: canv.showPage(); y_f = alto-3.5*cm
-                    canv.rect(mrg, y_f, w_nom, 0.55*cm); canv.setFont("Helvetica", 7)
-                    canv.drawString(mrg+0.1*cm, y_f+0.15*cm, f"{i+1}. {est['nombre'][:40]}")
-                    x_f, t_as, t_au = mrg+w_nom, 0, 0
-                    for f, t in clases:
-                        canv.rect(x_f, y_f, w_col, 0.55*cm)
-                        presencia = not asist[(asist['estudiante_id'].astype(str)==str(est['documento'])) & (asist['fecha']==f) & (asist['tema']==t)].empty if not asist.empty else False
-                        if presencia:
-                            canv.setFont("ZapfDingbats", 8); canv.drawCentredString(x_f+w_col/2, y_f+0.15*cm, u"\u2714")
-                            t_as += 1
-                        else:
-                            canv.setFont("Helvetica-Bold", 8); canv.drawCentredString(x_f+w_col/2, y_f+0.15*cm, "X")
-                            t_au += 1
-                        x_f += w_col
-                    canv.setFont("Helvetica-Bold", 7); canv.rect(x_f, y_f, 1.6*cm, 0.55*cm); canv.drawCentredString(x_f+0.8*cm, y_f+0.15*cm, str(t_as))
-                    canv.rect(x_f+1.6*cm, y_f, 1.6*cm, 0.55*cm); canv.drawCentredString(x_f+2.4*cm, y_f+0.15*cm, str(t_au))
-                    y_f -= 0.55*cm
-                canv.save(); st.download_button("📥 Descargar Reporte", pdf_io.getvalue(), f"Reporte_{gr}.pdf", use_container_width=True)
+        # --- NUEVA INTERFAZ DE FILTROS ---
+        col_r1, col_r2, col_r3 = st.columns([2, 1, 1])
 
+        with col_r1:
+            sel_as_rep = st.selectbox("Seleccione el Curso:", [f"{r['grado']} | {r['materia']}" for r in cursos], key="sel_curso_rep")
+            ga_rep, ma_rep = sel_as_rep.split(" | ")
 
+        with col_r2:
+            # --- NUEVO: Selección del Periodo a consultar ---
+            periodo_rep = st.number_input("Filtrar por Periodo:", min_value=1, max_value=4, value=1, step=1, key="num_periodo_rep")
+
+        with col_r3:
+            st.write("") # Espaciador para alinear el botón
+            st.write("")
+            btn_generar = st.button("📊 Generar Reporte", type="primary", use_container_width=True)
+
+        if btn_generar:
+            # Barra de progreso para dar feedback visual
+            with st.spinner(f"Consultando asistencia de {ga_rep} ({ma_rep}) - Periodo {periodo_rep}..."):
+                
+                # --- CONSULTAS A SUPABASE CON FILTRO DE PERIODO ---
+                
+                # A. Traer todos los estudiantes de ese grado (para saber quiénes faltaron)
+                todos_est = supabase.table("estudiantes").select("documento, nombre")\
+                    .eq("grado", ga_rep)\
+                    .eq("profe_id", st.session_state.user).order("nombre").execute().data
+
+                # B. Traer TODOS los registros de asistencia de ese curso Y PERIODO
+                asistencia_data = supabase.table("asistencia").select("estudiante_id, fecha, tema")\
+                    .eq("grado", ga_rep)\
+                    .eq("materia", ma_rep)\
+                    .eq("periodo", periodo_rep)\
+                    .eq("profe_id", st.session_state.user).execute().data
+
+            if todos_est and asistencia_data:
+                # 2. PROCESAMIENTO DE DATOS CON PANDAS
+                df_asistencia = pd.DataFrame(asistencia_data)
+                
+                # Asegurar formato de fecha correcto
+                df_asistencia['fecha'] = pd.to_datetime(df_asistencia['fecha']).dt.strftime('%d/%m/%Y')
+                
+                # Crear lista única de fechas y temas para las columnas
+                # Se crea una tupla (Fecha, Tema) para el encabezado
+                fechas_temas = df_asistencia[['fecha', 'tema']].drop_duplicates().sort_values('fecha')
+                columnas_dinamicas = [f"{r['fecha']}\n{r['tema']}" for _, r in fechas_temas.iterrows()]
+
+                # Inicializar el DataFrame final con los nombres de los estudiantes
+                reporte_final = pd.DataFrame(todos_est)
+                reporte_final = reporte_final.rename(columns={'nombre': 'Estudiante', 'documento': 'Documento'})
+                
+                # Rellenar las columnas dinámicas con '❌' (Ausente) por defecto
+                for col in columnas_dinamicas:
+                    reporte_final[col] = '❌'
+
+135.                # 3. LÓGICA PARA MARCAR '✅' (ASISTIÓ)
+                # Iterar sobre cada registro de asistencia y marcar el DataFrame final
+                for _, fila in df_asistencia.iterrows():
+                    id_est = fila['estudiante_id']
+                    # Reconstruir el nombre de la columna para coincidir
+                    fecha_fmt = fila['fecha']
+                    tema_fmt = fila['tema']
+                    col_busqueda = f"{fecha_fmt}\n{tema_fmt}"
+                    
+                    # Encontrar la fila del estudiante en el reporte final y marcar ✅
+                    reporte_final.loc[reporte_final['Documento'] == id_est, col_busqueda] = '✅'
+
+                # --- VISUALIZACIÓN DEL REPORTE ---
+                st.success(f"📈 Reporte generado para {ga_rep} - {ma_rep} | **Periodo: {periodo_rep}**")
+                
+                # Formatear el DataFrame para visualización (ocultar documento, índice)
+                rep_view = reporte_final.drop(columns=['Documento']).set_index('Estudiante')
+                
+                # Mostrar tabla interactiva
+                st.dataframe(rep_view, use_container_width=True)
+                
+                # --- OPCIONES DE DESCARGA ---
+                col_d1, col_d2 = st.columns(2)
+                
+                with col_d1:
+                    # Descargar en Excel
+                    from io import BytesIO
+                    output = BytesIO()
+                    # Usar style para un formato básico en Excel
+                    rep_view.style.to_excel(output, engine='openpyxl', index=True)
+                    excel_data = output.getvalue()
+                    st.download_button(
+                        label="📥 Descargar Reporte en Excel",
+                        data=excel_data,
+                        file_name=f"Reporte_Asistencia_{ga_rep}_{ma_rep}_P{periodo_rep}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+                
+                with col_d2:
+                    st.info("💡 Próximamente: Descarga en PDF con gráficos.")
+
+            elif todos_est and not asistencia_data:
+                st.warning(f"No se encontraron registros de asistencia para {ga_rep} - {ma_rep} en el **Periodo {periodo_rep}**.")
+            else:
+                st.error("Error al consultar los datos de los estudiantes.")
+
+    else:
+        st.error("No tienes cursos creados. Ve a la sección de Configuración.")
 # --- 5. REINICIO Y PANEL ADMIN ---
 elif menu == "⚙️ Reinicio":
     st.subheader("Mantenimiento")
