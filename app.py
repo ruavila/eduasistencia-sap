@@ -519,19 +519,17 @@ elif menu == "📊 Reportes":
                 reporte_final['N°'] = reporte_final['N°'].astype(str)
 
                 # ==========================================================
-                # --- GENERACIÓN DEL REPORTE PDF CON FPDF2 (FORMATO SÁBANA REVISADO) ---
+                # --- GENERACIÓN DEL REPORTE PDF CON FPDF2 (FORMATO SÁBANA CORREGIDO) ---
                 # ==========================================================
-                # --- REQUERIMIENTOS 1 & 2: OFICIO, HORIZONTAL, FUENTE 10PT ---
                 # Crear objeto PDF (Horizontal L, mm, Oficio/Legal)
-                # 'Legal' en FPDF2 es 215.9mm x 355.6mm. Al estar en 'L', el ancho es 355.6mm.
                 pdf = FPDF('L', 'mm', 'Legal')
                 pdf.add_page()
                 # Márgenes ajustados para el tamaño Oficio
                 pdf.set_margins(10, 10, 10)
                 
-                # --- REQUERIMIENTO 3: ESCUDO DEL COLEGIO ---
-                # Definir la ruta de la imagen del escudo (asumiendo que está en la raíz)
-                escudo_path = "escudo_colegio.png"
+                # --- CORRECCIÓN: RUTA DEL ESCUDO EN CARPETA ASSETS ---
+                # Definir la ruta correcta de la imagen del escudo dentro de 'assets'
+                escudo_path = os.path.join("assets", "escudo_colegio.png")
                 if os.path.exists(escudo_path):
                     # Colocar escudo (x, y, ancho_w, alto_h)
                     pdf.image(escudo_path, 10, 8, 25, 25) # Escudo de 25x25mm
@@ -539,26 +537,21 @@ elif menu == "📊 Reportes":
                 # --- ENCABEZADO INSTITUCIONAL ---
                 # Institución (desplazada a la derecha si hay escudo)
                 pdf.set_font("Arial", 'B', 16)
-                # Si hay escudo, mover el cursor a la derecha
                 if os.path.exists(escudo_path):
                     pdf.set_x(40) # Mover a 40mm de la izquierda
                 
                 pdf.cell(0, 12, "Institución Educativa San Antonio de Padua", 0, 1, 'C')
                 
                 # Datos de la clase
-                # Reducir tamaño de fuente de encabezados institucionales para Oficio
                 pdf.set_font("Arial", '', 11)
-                
-                # Ajustar X de nuevo si hubo escudo
                 if os.path.exists(escudo_path):
                     pdf.set_x(40)
                 
-                # Fila 1 (conservando tu modelo)
+                # Fila 1
                 pdf.cell(100, 7, f"Materia: {ma_rep}", 0, 0)
                 pdf.cell(80, 7, f"Grado: {ga_rep}", 0, 0)
                 pdf.cell(0, 7, f"Docente: {st.session_state.profe_nom}", 0, 1)
                 
-                # Ajustar X de nuevo si hubo escudo
                 if os.path.exists(escudo_path):
                     pdf.set_x(40)
                 
@@ -566,20 +559,19 @@ elif menu == "📊 Reportes":
                 pdf.set_font("Arial", 'B', 11)
                 ahora_co = dt.datetime.now() - dt.timedelta(hours=5)
                 pdf.cell(100, 7, f"Fecha Reporte: {ahora_co.strftime('%d/%m/%Y %H:%M')}", 0, 0)
-                # CRÍTICO: Indica qué periodo se está consultando
                 pdf.cell(0, 7, f"Periodo Académico Consultando: {periodo_rep}", 0, 1)
                 
                 pdf.ln(5) # Espacio antes de la tabla
 
                 # --- TABLA DE DATOS (CUADRÍCULA SÁBANA EN OFICIO) ---
-                # 1. DEFINIR ANCHOS DE COLUMNA (CRÍTICO para Horizontal en Oficio)
+                # 1. DEFINIR ANCHOS DE COLUMNA
                 # Ancho disponible aprox 335mm (Legal horizontal 355.6mm con márgenes de 10mm)
                 num_clases = len(columnas_dinamicas)
                 
-                # Anchos fijos iniciales y finales (revisados para Oficio y fuente 10pt)
+                # Anchos fijos iniciales y finales
                 w_num = 12
-                w_est = 70  # Más ancho para Oficio
-                w_totales = 18 # Más ancho para Oficio
+                w_est = 70  
+                w_totales = 18 
                 
                 # Calcular ancho dinámico para las clases
                 ancho_usado_fijo = w_num + w_est + (w_totales * 2)
@@ -592,8 +584,8 @@ elif menu == "📊 Reportes":
                     w_clase = ancho_disponible_dinamico
 
                 # 2. ENCABEZADOS DE LA TABLA (DOS LÍNEAS CON MULTICELL)
-                # --- REQUERIMIENTO 2: FUENTE 10PT ---
-                pdf.set_font("Arial", 'B', 10)
+                # --- CORRECCIÓN: TAMAÑO DE FUENTE 9PT ---
+                pdf.set_font("Arial", 'B', 9)
                 pdf.set_fill_color(240, 240, 240) # Gris suave para encabezado
                 
                 # Fila 1 del encabezado (N°, ESTUDIANTE, Totales ocupan dos líneas)
@@ -620,8 +612,8 @@ elif menu == "📊 Reportes":
                 pdf.cell(w_totales, 14, "Ausen.", 1, 1, 'C', 1) # Salto de línea final
 
                 # 3. CONTENIDO DE LA TABLA (FILA POR ESTUDIANTE)
-                # --- REQUERIMIENTO 2: FUENTE 10PT ---
-                pdf.set_font("Arial", '', 10)
+                # --- CORRECCIÓN: TAMAÑO DE FUENTE 9PT ---
+                pdf.set_font("Arial", '', 9)
                 
                 # Iterar sobre las filas del DataFrame final
                 for _, fila in reporte_final.iterrows():
@@ -648,7 +640,7 @@ elif menu == "📊 Reportes":
                     if pdf.get_y() > 180: 
                         pdf.add_page()
                         # Re-imprimir encabezados
-                        pdf.set_font("Arial", 'B', 10)
+                        pdf.set_font("Arial", 'B', 9)
                         pdf.set_fill_color(240, 240, 240)
                         # Re-imprimir N°, Estudiante, Totales (alto 14mm)
                         pdf.cell(w_num, 14, "N°", 1, 0, 'C', 1) 
@@ -664,15 +656,15 @@ elif menu == "📊 Reportes":
                         # Totales Finales (alto 14mm)
                         pdf.cell(w_totales, 14, "Asist", 1, 0, 'C', 1)
                         pdf.cell(w_totales, 14, "Ausen.", 1, 1, 'C', 1)
-                        # Regresar a fuente normal 10pt
-                        pdf.set_font("Arial", '', 10)
+                        # Regresar a fuente normal 9pt
+                        pdf.set_font("Arial", '', 9)
 
                 # ==========================================================
-                # --- PREPARACIÓN DEL PDF EN MEMORIA (SOLUCIÓN DEFINITIVA 'bytearray') ---
+                # --- PREPARACIÓN DEL PDF EN MEMORIA ('bytearray') ---
                 # ==========================================================
                 
                 # feedback visual
-                st.info(f"📉 Sábana detallada (P{periodo_rep} - OFICIO) generada correctamente para {ga_rep} - {ma_rep}.")
+                st.info(f"📉 Sábana detallada (P{periodo_rep} - OFICIO/9PT) generada correctamente para {ga_rep} - {ma_rep}.")
                 
                 # Con fpdf2 instalado, output(dest='S') ya devuelve directamente bytes (bytearray).
                 pdf_output_bytes = pdf.output(dest='S')
@@ -681,11 +673,11 @@ elif menu == "📊 Reportes":
                 pdf_file = io.BytesIO(pdf_output_bytes)
                 
                 # Botón de descarga DIRECTA (sin previsualización de nada)
-                # Actualizar el nombre del archivo para indicar que es Oficio
+                # Actualizar el nombre del archivo indicando la fuente 9pt
                 st.download_button(
-                    label="📥 Descargar Reporte PDF Detallado (Sábana OFICIO)",
+                    label="📥 Descargar Reporte PDF Detallado (Sábana OFICIO 9PT)",
                     data=pdf_file,
-                    file_name=f"Sabana_Asistencia_{ga_rep}_{ma_rep}_P{periodo_rep}_OFICIO_{ahora_co.strftime('%Y%M%d_%H%M')}.pdf",
+                    file_name=f"Sabana_Asistencia_{ga_rep}_{ma_rep}_P{periodo_rep}_OFICIO_9PT_{ahora_co.strftime('%Y%M%d_%H%M')}.pdf",
                     mime="application/pdf",
                     use_container_width=True
                 )
