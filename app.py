@@ -453,9 +453,14 @@ elif menu == "📊 Reportes":
                 # ==========================================================
                 # --- PROCESAMIENTO DE DATOS CON PANDAS (SÁBANA DETALLADA) ---
                 # ==========================================================
-                # Crear DataFrame base con todos los estudiantes
+                # Crear DataFrame base con todos los estudiantes (mayúsculas y latin-1)
                 df_reporte = pd.DataFrame(todos_est)
-                df_reporte['nombre'] = df_reporte['nombre'].str.upper() # Mayúsculas
+                df_reporte['nombre'] = df_reporte['nombre'].str.upper()
+                try:
+                    # Forzar latin-1 para compatibilidad si hay acentos
+                    df_reporte['nombre'] = df_reporte['nombre'].str.encode('latin-1', 'ignore').str.decode('latin-1')
+                except:
+                    pass
                 df_reporte = df_reporte.set_index('documento')
                 
                 # Crear DataFrame con asistencias
@@ -470,36 +475,45 @@ elif menu == "📊 Reportes":
                 reporte_final = df_reporte.copy()
 
                 for _, clase in df_clases.iterrows():
-                    # Formatear la fecha para el encabezado (ej: 12-07)
+                    # REQUERIMIENTO: Solo día y mes (ej: 12-07)
                     fecha_fmt = formatear_fecha_reporte(clase['fecha'])
-                    encabezado_col = f"{clase['tema']}\n{fecha_fmt}"
-                    columnas_dinamicas.append(encabezado_col)
+                    tema_raw = clase['tema']
+                    try:
+                        # Forzar latin-1 para el tema también
+                        tema_latin = tema_raw.encode('latin-1', 'ignore').decode('latin-1')
+                        encabezado_col = f"{tema_latin}\n{fecha_fmt}"
+                    except:
+                        encabezado_col = f"{tema_raw}\n{fecha_fmt}"
                     
+                    columnas_dinamicas.append(encabezado_col)
                     # Inicializar columna dinámica con 'X' (Ausente) por defecto
                     reporte_final[encabezado_col] = 'X' 
 
-                # --- UNICA CORRECCIÓN: DEFINICIÓN DE SÍMBOLOS COMPATIBLES ---
-                # Usamos el carácter ■ (cuadrado relleno estándar compatible con PDF latin-1)
-                simbolo_presente_pdf = '■'
-                simbolo_ausente_pdf = 'X'
+                # Llenar '✔' (Presente) y calcular totales
+                # El check ✔ requiere codificación latin-1 específica para FPDF (código cuadrado aprox)
+                check_pi_latin = '✔'.encode('latin-1', 'ignore').decode('latin-1')
                 
                 for registro in asistencia_data:
                     id_est = registro['estudiante_id']
                     if id_est in reporte_final.index:
-                        # Re-construir el nombre exacto de la columna
+                        tema_reg = registro['tema']
                         fecha_fmt_reg = formatear_fecha_reporte(registro['fecha'])
-                        col_pi = f"{registro['tema']}\n{fecha_fmt_reg}"
+                        try:
+                            tema_latin_reg = tema_reg.encode('latin-1', 'ignore').decode('latin-1')
+                            col_pi = f"{tema_latin_reg}\n{fecha_fmt_reg}"
+                        except:
+                            col_pi = f"{tema_reg}\n{fecha_fmt_reg}"
                         
                         if col_pi in reporte_final.columns:
-                            # Marcar presente con el símbolo compatible ■
-                            reporte_final.loc[id_est, col_pi] = simbolo_presente_pdf
+                            # Marcar presente con check corregido
+                            reporte_final.loc[id_est, col_pi] = check_pi_latin
 
                 # Calcular totales al final de cada fila
                 df_aux = reporte_final[columnas_dinamicas]
-                # Contar ■ para Asistencias
-                reporte_final['Asist'] = (df_aux == simbolo_presente_pdf).sum(axis=1)
-                # Contar X para Ausencias
-                reporte_final['Ausen.'] = (df_aux == simbolo_ausente_pdf).sum(axis=1)
+                # Contar '✔' para Asistencias
+                reporte_final['Asist'] = (df_aux == check_pi_latin).sum(axis=1)
+                # Contar 'X' para Ausencias
+                reporte_final['Ausen.'] = (df_aux == 'X').sum(axis=1)
                 
                 # Asegurar que los totales sean cadenas para MultiCell del PDF
                 reporte_final['Asist'] = reporte_final['Asist'].astype(str)
@@ -508,25 +522,28 @@ elif menu == "📊 Reportes":
                 # Limpiar DataFrame: Índice numérico, Nombre como columna 'ESTUDIANTE', añadir N°
                 reporte_final = reporte_final.reset_index()
                 reporte_final = reporte_final.rename(columns={'nombre': 'ESTUDIANTE'})
+                # Añadir columna de N° correlativo
                 reporte_final.insert(0, 'N°', range(1, 1 + len(reporte_final)))
+                # Convertir N° a string
                 reporte_final['N°'] = reporte_final['N°'].astype(str)
 
                 # ==========================================================
-                # --- GENERACIÓN DEL REPORTE PDF CON FPDF2 (FORMATO SÁBANA OFICIO) ---
+                # --- GENERACIÓN DEL REPORTE PDF CON FPDF2 (FORMATO SÁBANA DETALLADA) ---
                 # ==========================================================
                 # Crear objeto PDF (Horizontal L, mm, Legal/Oficio)
                 pdf = FPDF('L', 'mm', 'Legal')
                 pdf.add_page()
-                # Márgenes de 10mm (1cm)
+                # Márgenes ajustados para el tamaño Oficio
                 pdf.set_margins(10, 10, 10)
                 
-                # --- ENCABEZADO INSTITUCIONAL ---
-                # Escudo desde carpeta assets
-                escudo_path = os.path.join("assets", "escudo_colegio.png")
+                # --- RESTAURADO: RUTA DEL ESCUDO EN CARPETA ASSETS ---
+                # Definir la ruta correcta de la imagen del escudo dentro de 'assets'
+                escudo_path = os.path.join("assets", "escudo.png")
                 if os.path.exists(escudo_path):
                     # Colocar escudo (x, y, ancho_w, alto_h)
                     pdf.image(escudo_path, 10, 8, 25, 25) # Escudo de 25x25mm
                 
+                # --- ENCABEZADO INSTITUCIONAL ---
                 # Institución (desplazada a la derecha si hay escudo)
                 pdf.set_font("Arial", 'B', 16)
                 if os.path.exists(escudo_path):
@@ -613,12 +630,13 @@ elif menu == "📊 Reportes":
                 for _, fila in reporte_final.iterrows():
                     # Fila por estudiante
                     pdf.cell(w_num, 8, fila['N°'], 1, 0, 'C')
+                    # Nombre ya está en latin-1
                     pdf.cell(w_est, 8, fila['ESTUDIANTE'], 1, 0)
                     
                     # Iterar sobre las clases dinámicas (usando la lista que guardamos)
                     if num_clases > 0:
                         for col_din in columnas_dinamicas:
-                            # Símbolo Presente (■ compatible) o Ausente (X)
+                            # Símbolo Presente (✔ corregido latin-1) o Ausente (X)
                             simbolo = fila[col_din]
                             pdf.cell(w_clase, 8, simbolo, 1, 0, 'C')
                     else:
@@ -684,6 +702,7 @@ elif menu == "📊 Reportes":
 
     else:
         st.error("No tienes cursos creados. Ve a la sección de Configuración.")
+
 # --- 5. REINICIO Y PANEL ADMIN ---
 elif menu == "⚙️ Reinicio":
     st.subheader("Mantenimiento")
