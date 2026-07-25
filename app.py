@@ -538,7 +538,7 @@ elif menu == "📊 Reportes":
                 
                 # --- RESTAURADO: RUTA DEL ESCUDO EN CARPETA ASSETS ---
                 # Definir la ruta correcta de la imagen del escudo dentro de 'assets'
-                escudo_path = os.path.join("assets", "escudo_colegio.png")
+                escudo_path = os.path.join("assets", "escudo.png")
                 if os.path.exists(escudo_path):
                     # Colocar escudo (x, y, ancho_w, alto_h)
                     pdf.image(escudo_path, 10, 8, 25, 25) # Escudo de 25x25mm
