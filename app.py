@@ -489,9 +489,9 @@ elif menu == "📊 Reportes":
                     # Inicializar columna dinámica con 'X' (Ausente) por defecto
                     reporte_final[encabezado_col] = 'X' 
 
-                # Llenar '✔' (Presente) y calcular totales
-                # El check ✔ requiere codificación latin-1 específica para FPDF (código cuadrado aprox)
-                check_pi_latin = '✔'.encode('latin-1', 'ignore').decode('latin-1')
+                # Llenar 'v' (Presente) y calcular totales
+                # El check v requiere codificación latin-1 específica para FPDF (código cuadrado aprox)
+                check_pi_latin = 'v'.encode('latin-1', 'ignore').decode('latin-1')
                 
                 for registro in asistencia_data:
                     id_est = registro['estudiante_id']
