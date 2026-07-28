@@ -489,9 +489,9 @@ elif menu == "📊 Reportes":
                     # Inicializar columna dinámica con 'X' (Ausente) por defecto
                     reporte_final[encabezado_col] = 'X' 
 
-                # Llenar 'v' (Presente) y calcular totales
-                # El check v requiere codificación latin-1 específica para FPDF (código cuadrado aprox)
-                check_pi_latin = 'v'.encode('latin-1', 'ignore').decode('latin-1')
+                # Llenar 'V' (Presente) y calcular totales
+                # El check V requiere codificación latin-1 específica para FPDF (código cuadrado aprox)
+                check_pi_latin = 'V'.encode('latin-1', 'ignore').decode('latin-1')
                 
                 for registro in asistencia_data:
                     id_est = registro['estudiante_id']
@@ -510,7 +510,7 @@ elif menu == "📊 Reportes":
 
                 # Calcular totales al final de cada fila
                 df_aux = reporte_final[columnas_dinamicas]
-                # Contar '✔' para Asistencias
+                # Contar 'V' para Asistencias
                 reporte_final['Asist'] = (df_aux == check_pi_latin).sum(axis=1)
                 # Contar 'X' para Ausencias
                 reporte_final['Ausen.'] = (df_aux == 'X').sum(axis=1)
