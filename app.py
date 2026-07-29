@@ -703,20 +703,58 @@ elif menu == "📊 Reportes":
     else:
         st.error("No tienes cursos creados. Ve a la sección de Configuración.")
 
-# --- 5. REINICIO Y PANEL ADMIN ---
+# --- 5. REINICIO Y PANEL ADMIN (MODIFICADO) ---
 elif menu == "⚙️ Reinicio":
     st.subheader("Mantenimiento")
-    if st.button("⚠️ BORRAR MIS DATOS"):
-        supabase.table("asistencia").delete().eq("profe_id", st.session_state.user).execute()
-        supabase.table("estudiantes").delete().eq("profe_id", st.session_state.user).execute()
-        supabase.table("cursos").delete().eq("profe_id", st.session_state.user).execute()
-        st.success("Datos eliminados correctamente."); st.rerun()
+    
+    # --- NUEVA LÓGICA DE BORRADO CON ADVERTENCIA ---
+    # Inicializar el estado de confirmación si no existe
+    if 'confirmar_borrado' not in st.session_state:
+        st.session_state.confirmar_borrado = False
+
+    # Botón inicial: Solo aparece si no estamos esperando confirmación
+    if not st.session_state.confirmar_borrado:
+        if st.button("⚠️ BORRAR MIS DATOS", type="primary"): # type="primary" lo pone rojo/destacado
+            # Cambiar estado para mostrar la advertencia en el próximo rerun
+            st.session_state.confirmar_borrado = True
+            st.rerun() # Rerun inmediato para mostrar la advertencia
+            
+    # Si estamos esperando confirmación, mostrar la advertencia y los botones nuevos
+    if st.session_state.confirmar_borrado:
+        st.warning("🚨 **¿Estás absolutamente seguro?** Esta acción es irreversible y eliminará todos tus registros de asistencia, estudiantes y cursos permanentemente.")
+        
+        # Columnas para alinear botones de Confirmar/Cancelar
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("✅ Sí, borrar todo definitivamente", type="danger"): # type="danger" en versiones nuevas es rojo intenso
+                # === LÓGICA DE BORRADO REAL (TU CÓDIGO ORIGINAL) ===
+                with st.spinner("Eliminando tus datos..."):
+                    supabase.table("asistencia").delete().eq("profe_id", st.session_state.user).execute()
+                    supabase.table("estudiantes").delete().eq("profe_id", st.session_state.user).execute()
+                    supabase.table("cursos").delete().eq("profe_id", st.session_state.user).execute()
+                
+                # Limpiar estado y dar feedback
+                st.session_state.confirmar_borrado = False
+                st.success("Datos eliminados correctamente.")
+                st.rerun() # Volver al estado inicial de la página
+                
+        with col2:
+            if st.button("❌ Cancelar"):
+                # Resetear el estado de confirmación
+                st.session_state.confirmar_borrado = False
+                st.info("Acción cancelada.")
+                st.rerun() # Volver al estado inicial de la página
+
+    # --- FIN DE LA LÓGICA DE BORRADO MODIFICADA ---
 
     st.markdown("<br><br>", unsafe_allow_html=True)
     with st.expander("🛠️ Panel Programador"):
         m_k = st.text_input("Clave Master", type="password")
         if m_k == "AdminEdu2026":
             st.info("🔓 Sesión Admin")
+            # ... resto de tu código del Panel Programador ...
+            # (No modificado para mantener la brevedad)
             usuarios_data = supabase.table("usuarios").select("usuario, nombre, pregunta_seguridad").execute().data
             if usuarios_data:
                 df_u = pd.DataFrame(usuarios_data)
