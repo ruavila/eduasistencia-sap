@@ -5,7 +5,6 @@ qrcode
 pyzbar
 opencv-python-headless
 reportlab
-openpyxl
 xlsxwriter
 openpyxl
 streamlit-qrcode-scanner
