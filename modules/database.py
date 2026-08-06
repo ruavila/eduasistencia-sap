@@ -4,8 +4,8 @@ import hashlib
 
 # Conexión con las llaves de Streamlit Secrets
 try:
-    url = "https://yzeqxltqpkgrrqcbagik.supabase.co"
-    key = "sb_publishable_s4RmxZTJBxbRGMLNY3xQ2A_7OKqkUM7"
+    url = st.secrets["supabase"]["url"]
+    key = st.secrets["supabase"]["key"]
     supabase: Client = create_client(url, key)
 except Exception as e:
     st.error("Error en credenciales. Verifica los Secrets.")
