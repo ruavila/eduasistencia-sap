@@ -265,7 +265,10 @@ elif menu == "📷 Scanner QR":
         col_c1, col_c2 = st.columns([2, 1])
         
         with col_c1:
-            sel_as = st.selectbox("Seleccione el Curso:", [f"{r['grado']} | {r['materia']}" for r in cursos], key="sel_curso_scan")
+            # --- LÍNEA CORREGIDA CON sorted() ---
+            opciones_cursos = sorted([f"{r['grado']} | {r['materia']}" for r in cursos])
+            sel_as = st.selectbox("Seleccione el Curso:", opciones_cursos, key="sel_curso_scan")
+            # ------------------------------------
             ga, ma = sel_as.split(" | ")
         
         with col_c2:
