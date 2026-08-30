@@ -456,7 +456,10 @@ elif menu == "📊 Reportes":
         col_r1, col_r2, col_r3 = st.columns([2, 1, 1])
 
         with col_r1:
-            sel_as_rep = st.selectbox("Seleccione el Curso:", [f"{r['grado']} | {r['materia']}" for r in cursos], key="sel_curso_rep")
+            # --- LÍNEA CORREGIDA CON sorted() ---
+            opciones_cursos_rep = sorted([f"{r['grado']} | {r['materia']}" for r in cursos])
+            sel_as_rep = st.selectbox("Seleccione el Curso:", opciones_cursos_rep, key="sel_curso_rep")
+            # ------------------------------------
             ga_rep, ma_rep = sel_as_rep.split(" | ")
 
         with col_r2:
@@ -738,7 +741,6 @@ elif menu == "📊 Reportes":
 
     else:
         st.error("No tienes cursos creados. Ve a la sección de Configuración.")
-
 # --- 5. REINICIO Y PANEL ADMIN ---
 elif menu == "⚙️ Reinicio":
     st.subheader("Mantenimiento")
