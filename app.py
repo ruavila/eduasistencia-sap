@@ -128,12 +128,19 @@ if menu == "📚 Cursos":
     st.subheader("Configuración de Cursos")
     g, m = st.text_input("Grado"), st.text_input("Asignatura")
     if st.button("Añadir Curso"):
-        supabase.table("cursos").insert({"grado": g, "materia": m, "profe_id": st.session_state.user}).execute()
-        st.rerun()
+        if g.strip() and m.strip():
+            supabase.table("cursos").insert({"grado": g, "materia": m, "profe_id": st.session_state.user}).execute()
+            st.rerun()
+        else:
+            st.warning("Por favor ingresa tanto el Grado como la Asignatura.")
     
     res_c = supabase.table("cursos").select("*").eq("profe_id", st.session_state.user).execute()
     if res_c.data:
         df_c = pd.DataFrame(res_c.data)
+        
+        # --- ORDENAMIENTO ASCENDENTE POR GRADO ---
+        df_c = df_c.sort_values(by="grado", ascending=True)
+        
         for _, r in df_c.iterrows():
             c1, c2 = st.columns([5, 1])
             c1.info(f"{r['grado']} - {r['materia']}")
