@@ -157,7 +157,11 @@ elif menu == "👤 Estudiantes":
 
     cursos = supabase.table("cursos").select("grado, materia").eq("profe_id", st.session_state.user).execute().data
     if cursos:
-        sel = st.selectbox("Curso:", [f"{r['grado']} | {r['materia']}" for r in cursos])
+        # --- LÍNEA CORREGIDA CON sorted() ---
+        opciones_cursos = sorted([f"{r['grado']} | {r['materia']}" for r in cursos])
+        sel = st.selectbox("Curso:", opciones_cursos)
+        # ------------------------------------
+        
         gs, ms = sel.split(" | ")
         f = st.file_uploader("Subir Excel", type=["xlsx"])
         
