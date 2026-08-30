@@ -141,12 +141,12 @@ if menu == "📚 Cursos":
                 supabase.table("cursos").delete().eq("id", r['id']).execute()
                 st.rerun()
 
-# --- 2. ESTUDIANTES Y CARNETS ---
+# --- 2. ESTUDIANTES Y CARNETS (VERSIÓN CORREGIDA DE QR Y ARCHIVOS TEMPORALES) ---
 elif menu == "👤 Estudiantes":
     st.subheader("Carga de Estudiantes y Carnetización")
     
-    # Importación necesaria para el tamaño carta si no la tienes arriba
     from reportlab.lib.pagesizes import letter 
+    import tempfile
 
     cursos = supabase.table("cursos").select("grado, materia").eq("profe_id", st.session_state.user).execute().data
     if cursos:
@@ -159,56 +159,78 @@ elif menu == "👤 Estudiantes":
             df.columns = [str(c).strip().lower() for c in df.columns]
             
             pdf = io.BytesIO()
-            # Cambio a letter (Carta) y quitamos el landscape para que sea vertical
             canv = canvas.Canvas(pdf, pagesize=letter)
-            ancho_pg, alto_pg = letter # Dimensiones: 21.59cm x 27.94cm
+            ancho_pg, alto_pg = letter # 21.59cm x 27.94cm
             
             # Ajuste de márgenes iniciales
             x, y, col = 1.5*cm, alto_pg - 5*cm, 0
             
             for index, r in df.iterrows():
-                e_id = str(r.get('estudiante_id', r.get('documento', ''))).split('.')[0].strip()
+                # 1. Extracción limpia de ID / Documento
+                e_id_raw = str(r.get('estudiante_id', r.get('documento', r.get('id', '')))).split('.')[0].strip()
+                
+                # Si el id viene vacío o es nan, asignamos un ID temporal único basado en el grado e índice
+                if not e_id_raw or e_id_raw.lower() in ['nan', 'none', '']:
+                    e_id = f"{gs.replace(' ', '')}_{index + 1}"
+                else:
+                    e_id = e_id_raw
+                
                 e_nm = str(r.get('nombre', '')).upper().strip()
                 e_ws = "".join(filter(str.isdigit, str(r.get('whatsapp', '')))).split('.')[0]
                 
-                # Registro en base de datos
+                # 2. Registro / Actualización en Supabase
                 supabase.table("estudiantes").upsert({
-                    "documento": e_id, "nombre": e_nm, "whatsapp": e_ws, 
-                    "grado": gs, "materia": ms, "profe_id": st.session_state.user
+                    "documento": e_id, 
+                    "nombre": e_nm, 
+                    "whatsapp": e_ws, 
+                    "grado": gs, 
+                    "materia": ms, 
+                    "profe_id": st.session_state.user
                 }).execute()
                 
-                # Generación de QR (Usando la lógica de instancia fresca para evitar duplicados)
-                qr_engine = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=10, border=4)
-                qr_engine.add_data(e_id)
+                # 3. Generación de QR con Instancia Limpia por Estudiante
+                qr_engine = qrcode.QRCode(
+                    version=1, 
+                    error_correction=qrcode.constants.ERROR_CORRECT_H, 
+                    box_size=10, 
+                    border=4
+                )
+                qr_engine.add_data(str(e_id))
                 qr_engine.make(fit=True)
                 img_qr = qr_engine.make_image(fill_color="black", back_color="white")
                 
-                with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{index}.png") as tmp_qr:
-                    img_qr.save(tmp_qr.name)
-                    tmp_qr_path = tmp_qr.name
+                # 4. Guardado en ruta temporal única sin bloqueo de archivo
+                tmp_filename = f"qr_{gs}_{index}_{e_id}.png".replace("/", "_").replace("\\", "_")
+                tmp_qr_path = os.path.join(tempfile.gettempdir(), tmp_filename)
+                img_qr.save(tmp_qr_path)
 
-                # Dibujar imagen y textos
+                # 5. Dibujar imagen y textos en el PDF
                 canv.drawInlineImage(tmp_qr_path, x, y, 4*cm, 4*cm)
                 canv.setFont("Helvetica-Bold", 7)
-                canv.drawCentredString(x + 2*cm, y-0.4*cm, e_nm[:25])
+                canv.drawCentredString(x + 2*cm, y - 0.4*cm, e_nm[:25])
                 canv.setFont("Helvetica", 6)
-                canv.drawCentredString(x + 2*cm, y-0.8*cm, f"Grado: {gs} - {IE_INITIALS}")
+                canv.drawCentredString(x + 2*cm, y - 0.8*cm, f"Grado: {gs} - {IE_INITIALS}")
                 
-                # --- Lógica de Cuadrícula para Hoja Carta Vertical ---
+                # 6. Eliminar inmediatamente la imagen del disco
+                if os.path.exists(tmp_qr_path):
+                    try:
+                        os.remove(tmp_qr_path)
+                    except Exception:
+                        pass
+                
+                # 7. Lógica de cuadrícula para Hoja Carta Vertical
                 col += 1
-                if col >= 3: # 3 carnets por fila en vertical
+                if col >= 3: # 3 carnets por fila
                     x = 1.5*cm
-                    y -= 6.0*cm # Espacio entre filas
+                    y -= 6.0*cm
                     col = 0
                 else: 
-                    x += 6.5*cm # Espacio entre columnas
+                    x += 6.5*cm
                 
-                # Salto de página si se acaba el espacio vertical
+                # Salto de página
                 if y < 2*cm: 
                     canv.showPage()
                     x, y, col = 1.5*cm, alto_pg - 5*cm, 0
-                
-                os.remove(tmp_qr_path)
                 
             canv.save()
             st.success(f"Se generaron carnets para {len(df)} estudiantes en formato Carta.")
