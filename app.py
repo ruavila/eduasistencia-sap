@@ -270,9 +270,9 @@ elif menu == "📷 Scanner QR":
         col_c1, col_c2 = st.columns([2, 1])
         
         with col_c1:
-            opciones_cursos = sorted([f"{r['grado']} | {r['materia']}" for r in cursos])
+            opciones_cursos = sorted([f"{r['grado'].strip()} | {r['materia'].strip()}" for r in cursos])
             sel_as = st.selectbox("Seleccione el Curso:", opciones_cursos, key="sel_curso_scan")
-            ga, ma = sel_as.split(" | ")
+            ga, ma = [item.strip() for item in sel_as.split(" | ")]
         
         with col_c2:
             periodo_actual = st.number_input("Periodo Actual:", min_value=1, max_value=4, value=1, step=1, key="num_periodo")
@@ -295,10 +295,18 @@ elif menu == "📷 Scanner QR":
                     
                     if cod:
                         id_cl = str(cod).strip()
-                        res = supabase.table("estudiantes").select("documento, nombre").eq("documento", id_cl).eq("grado", ga).eq("profe_id", st.session_state.user).execute().data
                         
-                        if res:
-                            doc, nom = res[0]['documento'], res[0]['nombre']
+                        # --- BÚSQUEDA ROBUSTA CONTRA ESPACIOS EXTRA ---
+                        # Consultamos por documento y profesor para evitar fallos de matching rígido en el texto del grado
+                        res = supabase.table("estudiantes").select("documento, nombre, grado")\
+                            .eq("documento", id_cl)\
+                            .eq("profe_id", st.session_state.user).execute().data
+                        
+                        # Filtramos en memoria asegurando eliminar espacios residuales
+                        res_filtrado = [e for e in res if str(e.get('grado', '')).strip() == ga]
+                        
+                        if res_filtrado:
+                            doc, nom = res_filtrado[0]['documento'], res_filtrado[0]['nombre']
                             ahora_co = dt.datetime.now(TZ_COLOMBIA)
                             hoy = ahora_co.strftime("%Y-%m-%d")
                             
@@ -348,7 +356,11 @@ elif menu == "📷 Scanner QR":
                     else:
                         saludo_bold = "*Buenas noches*"
 
-                    todos = supabase.table("estudiantes").select("documento, nombre, whatsapp").eq("grado", ga).eq("profe_id", st.session_state.user).execute().data
+                    todos = supabase.table("estudiantes").select("documento, nombre, whatsapp, grado")\
+                        .eq("profe_id", st.session_state.user).execute().data
+                    
+                    # Filtrar estudiantes pertenecientes al grado evitando fallos por espacios en blanco
+                    todos_grado = [e for e in todos if str(e.get('grado', '')).strip() == ga]
                     
                     asistieron = supabase.table("asistencia").select("estudiante_id")\
                         .eq("grado", ga)\
@@ -358,7 +370,7 @@ elif menu == "📷 Scanner QR":
                         .eq("profe_id", st.session_state.user).execute().data
                     
                     ids_asistieron = {str(a['estudiante_id']).strip() for a in asistieron}
-                    ausentes = [e for e in todos if str(e['documento']).strip() not in ids_asistieron]
+                    ausentes = [e for e in todos_grado if str(e['documento']).strip() not in ids_asistieron]
                     
                     if ausentes:
                         for aus in ausentes:
@@ -378,7 +390,7 @@ elif menu == "📷 Scanner QR":
                             
                             # Codificación URL estándar segura para WhatsApp
                             msg_encoded = quote(cuerpo_msj)
-                            link_wa = f"https://wa.me/57{aus['whatsapp']}?text={msg_encoded}"
+                            link_wa = f"https://wa.me/57{str(aus['whatsapp']).strip()}?text={msg_encoded}"
                             col_b.markdown(f"[📲 Notificar]({link_wa})")
                     else:
                         st.success("¡Asistencia completa!")
@@ -386,7 +398,10 @@ elif menu == "📷 Scanner QR":
             with tab_lista:
                 # --- PLAN B: REGISTRO MANUAL ---
                 st.info(f"Registro Manual para {ga} - {ma} | Periodo: {periodo_actual}")
-                est_lista = supabase.table("estudiantes").select("documento, nombre").eq("grado", ga).eq("profe_id", st.session_state.user).order("nombre").execute().data
+                est_todos = supabase.table("estudiantes").select("documento, nombre, grado")\
+                    .eq("profe_id", st.session_state.user).order("nombre").execute().data
+                
+                est_lista = [e for e in est_todos if str(e.get('grado', '')).strip() == ga]
                 
                 if est_lista:
                     num_input = st.number_input("Número de lista:", min_value=1, max_value=len(est_lista), step=1, key="num_manual")
@@ -420,7 +435,6 @@ elif menu == "📷 Scanner QR":
                             st.warning(f"{nom_m} ya está registrado hoy en P{periodo_actual}.")
     else:
         st.error("No tienes cursos creados. Ve a la sección de Configuración.")
-# ==============================================================================
 # --- 4. SECCIÓN DE REPORTES (PDF DETALLADO POR PERIODO - FORMATO INSTITUCIONAL) ---
 elif menu == "📊 Reportes":
     # Importaciones necesarias para esta sección (asegúrate de tener fpdf2, pandas, datetime, io, os instalados)
