@@ -247,211 +247,367 @@ elif menu == "👤 Estudiantes":
             st.success(f"Se generaron carnets para {len(df)} estudiantes en formato Carta.")
             st.download_button("📥 Descargar Carnets", pdf.getvalue(), f"Carnets_{gs}.pdf")
 
-# --- 3. SCANNER QR Y LISTA MANUAL (CON LIMPIEZA DE CACHÉ Y GRADO) ---
-elif menu == "📷 Scanner QR":
-    import datetime as dt
-    import time
-    from urllib.parse import quote
-    from zoneinfo import ZoneInfo
+# --- 3. SCANNER QR Y LISTA MANUAL (INTERFAZ SIMPLIFICADA) ---
 
-    TZ_COLOMBIA = ZoneInfo("America/Bogota")
+elif menu == "📷 Scanner QR":
+
+    import datetime as dt
+
+    import time
 
     st.subheader("Captura de Asistencia por Periodo")
+
     
+
     if 'captura_finalizada' not in st.session_state:
+
         st.session_state.captura_finalizada = False
 
-    def limpiar_doc(doc):
-        if doc is None:
-            return ""
-        d = str(doc).strip()
-        if d.endswith(".0"):
-            d = d[:-2]
-        return d.lstrip("0")
+
 
     # 1. Consulta de cursos vinculados al docente
+
     cursos = supabase.table("cursos").select("grado, materia").eq("profe_id", st.session_state.user).execute().data
+
     
+
     if cursos:
-        col_c1, col_c2, col_c3 = st.columns([2, 1, 1])
+
+        # --- INTERFAZ SIMPLIFICADA: Sin expander y sin fecha ---
+
+        # Se organizan los elementos en columnas directas en la página
+
+        col_c1, col_c2 = st.columns([2, 1])
+
         
+
         with col_c1:
-            opciones_cursos = sorted([f"{r['grado'].strip()} | {r['materia'].strip()}" for r in cursos])
+
+            # --- LÍNEA CORREGIDA CON sorted() ---
+
+            opciones_cursos = sorted([f"{r['grado']} | {r['materia']}" for r in cursos])
+
             sel_as = st.selectbox("Seleccione el Curso:", opciones_cursos, key="sel_curso_scan")
-            ga, ma = [part.strip() for part in sel_as.split(" | ")]
+
+            # ------------------------------------
+
+            ga, ma = sel_as.split(" | ")
+
         
+
         with col_c2:
+
+            # Entrada para el Periodo Académico
+
             periodo_actual = st.number_input("Periodo Actual:", min_value=1, max_value=4, value=1, step=1, key="num_periodo")
 
-        with col_c3:
-            st.write("") # Espaciador visual
-            # Botón para forzar actualización de la lista de la BD si agregaste un alumno reciente
-            if st.button("🔄 Recargar Lista", use_container_width=True):
-                clave_cache = f"estudiantes_{ga}_{st.session_state.user}"
-                if clave_cache in st.session_state:
-                    del st.session_state[clave_cache]
-                st.rerun()
+        
+
+        # Entrada para el Tema de la clase
 
         tema_input = st.text_input("Tema de la clase:", placeholder="Ej: Introducción a la Multimedia")
+
         tema = tema_input.strip() 
 
-        # --- CACHÉ DINÁMICO POR GRADO SELECCIONADO ---
-        clave_cache_curso = f"estudiantes_{ga}_{st.session_state.user}"
-        
-        # Si cambiamos de curso en el selectbox, se consulta Supabase para ese curso específico
-        if clave_cache_curso not in st.session_state:
-            # Usamos ilike/strip implícito trayendo estudiantes del profesor y filtrando exactamente
-            res_bd = supabase.table("estudiantes")\
-                .select("documento, nombre, whatsapp, grado")\
-                .eq("profe_id", st.session_state.user)\
-                .execute().data
-            
-            # Filtramos en Python ignorando mayúsculas/minúsculas y espacios invisibles en 'grado'
-            estudiantes_filtrados = [
-                {**e, "doc_limpio": limpiar_doc(e['documento'])} 
-                for e in res_bd 
-                if str(e.get('grado', '')).strip().lower() == ga.lower()
-            ]
-            st.session_state[clave_cache_curso] = estudiantes_filtrados
 
-        estudiantes_curso = st.session_state[clave_cache_curso]
 
-        # Alerta informativa si la lista está vacía
-        if not estudiantes_curso:
-            st.warning(f"⚠️ No se encontraron estudiantes registrados en el grado exacto '{ga}'. Verifica en la sección de estudiantes como está escrito el grado.")
+        # Solo proceder si hay tema definido
 
         if tema:
+
             tab_qr, tab_lista = st.tabs(["📷 Escáner QR", "🔢 Número de Lista (Plan B)"])
+
             
+
             with tab_qr:
+
                 if not st.session_state.captura_finalizada:
-                    st.info(f"📋 **{ga} - {ma}** | Alumnos cargados en este curso: **{len(estudiantes_curso)}**")
+
+                    # Barra de información resumida
+
+                    st.success(f"📋 **{ga} - {ma}** | Periodo: **{periodo_actual}** | Tema: *{tema}*")
+
                     
+
                     if st.button("⏹️ Finalizar Captura y Ver Ausentes", type="primary", use_container_width=True):
+
                         st.session_state.captura_finalizada = True
+
                         st.rerun()
+
                     
+
+                    # Escáner con clave dinámica por grado y periodo
+
                     cod = qrcode_scanner(key=f"scanner_{ga}_{periodo_actual}") 
+
                     
+
                     if cod:
-                        id_cl_limpio = limpiar_doc(cod)
+
+                        id_cl = str(cod).strip()
+
+                        # Búsqueda en la base de datos de estudiantes
+
+                        res = supabase.table("estudiantes").select("documento, nombre").eq("documento", id_cl).eq("grado", ga).eq("profe_id", st.session_state.user).execute().data
+
                         
-                        # Búsqueda en los estudiantes filtrados del curso actual
-                        res = [e for e in estudiantes_curso if e['doc_limpio'] == id_cl_limpio]
 
                         if res:
+
                             doc, nom = res[0]['documento'], res[0]['nombre']
-                            ahora_co = dt.datetime.now(TZ_COLOMBIA)
+
+                            # Ajuste de hora Colombia para el registro (UTC-5)
+
+                            ahora_co = dt.datetime.now() - dt.timedelta(hours=5)
+
                             hoy = ahora_co.strftime("%Y-%m-%d")
+
                             
+
+                            # Check de duplicados incluye PERIODO
+
                             check = supabase.table("asistencia").select("id")\
+
                                 .eq("estudiante_id", doc)\
+
                                 .eq("fecha", hoy)\
+
                                 .eq("tema", tema)\
+
                                 .eq("periodo", periodo_actual).execute().data
+
                             
+
                             if not check:
+
+                                # Inserción incluye PERIODO
+
                                 try:
+
                                     supabase.table("asistencia").insert({
+
                                         "estudiante_id": doc, 
+
                                         "fecha": hoy, 
+
                                         "hora": ahora_co.strftime("%H:%M:%S"), 
+
                                         "grado": ga, 
+
                                         "materia": ma, 
+
                                         "tema": tema, 
+
                                         "periodo": periodo_actual, 
+
                                         "profe_id": st.session_state.user
+
                                     }).execute()
+
                                     st.toast(f"✅ Registrado en P{periodo_actual}: {nom}", icon="👤")
+
+                                    # Pequeña pausa para evitar registros múltiples accidentales
+
                                     time.sleep(0.5) 
+
                                 except Exception as e:
+
                                     st.error(f"Error al registrar: {e}")
+
                             else:
+
                                 st.toast(f"ℹ️ {nom} ya registrado hoy en P{periodo_actual}", icon="✅")
+
                         else:
-                            st.error(f"❌ Documento '{cod}' (Limpio: '{id_cl_limpio}') NO está matriculado en el curso '{ga}'.")
+
+                            st.toast(f"⚠️ Estudiante no encontrado en {ga}: {id_cl}", icon="❌")
+
                 
+
                 else:
+
                     # --- SECCIÓN DE AUSENTES ---
+
                     if st.button("🔄 Volver a escanear / Limpiar", use_container_width=True):
+
                         st.session_state.captura_finalizada = False
+
                         st.rerun()
 
+
+
                     st.warning(f"⚠️ Estudiantes Ausentes hoy en {ga} (Periodo {periodo_actual}):")
+
                     
-                    ahora_col = dt.datetime.now(TZ_COLOMBIA)
+
+                    # Tiempo local Colombia
+
+                    ahora_col = dt.datetime.now() - dt.timedelta(hours=5)
+
                     hoy_col = ahora_col.strftime("%Y-%m-%d")
+
                     hora_msj = ahora_col.strftime("%I:%M %p")
+
                     
-                    saludo_bold = "*Buenos días*" if ahora_col.hour < 12 else "*Buenas tardes*" if ahora_col.hour < 18 else "*Buenas noches*"
+
+                    # Determinar saludo cordial en negrita
+
+                    if ahora_col.hour < 12: saludo_bold = "*Buenos días*"
+
+                    elif 12 <= ahora_col.hour < 18: saludo_bold = "*Buenas tardes*"
+
+                    else: saludo_bold = "*Buenas noches*"
+
+
+
+                    # Consultas a Supabase
+
+                    todos = supabase.table("estudiantes").select("documento, nombre, whatsapp").eq("grado", ga).eq("profe_id", st.session_state.user).execute().data
+
+                    
+
+                    # Consulta de asistieron filtra por PERIODO
 
                     asistieron = supabase.table("asistencia").select("estudiante_id")\
+
                         .eq("grado", ga)\
+
                         .eq("fecha", hoy_col)\
+
                         .eq("tema", tema)\
+
                         .eq("periodo", periodo_actual)\
+
                         .eq("profe_id", st.session_state.user).execute().data
+
                     
-                    ids_asistieron_limpios = {limpiar_doc(a['estudiante_id']) for a in asistieron}
-                    ausentes = [e for e in estudiantes_curso if e['doc_limpio'] not in ids_asistieron_limpios]
+
+                    # Lógica de comparación
+
+                    ids_asistieron = [str(a['estudiante_id']).strip() for a in asistieron]
+
+                    ausentes = [e for e in todos if str(e['documento']).strip() not in ids_asistieron]
+
                     
+
                     if ausentes:
+
                         for aus in ausentes:
+
                             col_a, col_b = st.columns([3, 1])
+
                             col_a.write(f"❌ {aus['nombre']}")
+
                             
+
+                            # CUERPO DEL MENSAJE IDÉNTICO A LA IMAGEN
+
                             cuerpo_msj = (
+
                                 f"{saludo_bold}, señor(a) padre de familia o acudiente. La Institución Educativa San "
+
                                 f"Antonio de Padua le informa que el estudiante *{aus['nombre']}* no se "
+
                                 f"presentó el día de hoy a la clase de *{ma}*.\n\n"
+
                                 f"*Hora de reporte:* {hora_msj}\n"
+
                                 f"*Tema tratado:* {tema}.\n\n"
+
                                 f"Institucionalmente,\n\n"
+
                                 f"*Docente:* {st.session_state.profe_nom}\n"
+
                                 f"*Área:* {ma}"
+
                             )
+
                             
-                            msg_encoded = quote(cuerpo_msj)
+
+                            # Codificación para WhatsApp
+
+                            msg_encoded = cuerpo_msj.replace(" ", "%20").replace("\n", "%0A")
+
                             link_wa = f"https://wa.me/57{aus['whatsapp']}?text={msg_encoded}"
+
                             col_b.markdown(f"[📲 Notificar]({link_wa})")
+
                     else:
+
                         st.success("¡Asistencia completa!")
 
+
+
             with tab_lista:
+
+                # --- PLAN B: REGISTRO MANUAL ---
+
                 st.info(f"Registro Manual para {ga} - {ma} | Periodo: {periodo_actual}")
+
+                est_lista = supabase.table("estudiantes").select("documento, nombre").eq("grado", ga).eq("profe_id", st.session_state.user).order("nombre").execute().data
+
                 
-                if estudiantes_curso:
-                    num_input = st.number_input("Número de lista:", min_value=1, max_value=len(estudiantes_curso), step=1, key="num_manual")
+
+                if est_lista:
+
+                    num_input = st.number_input("Número de lista:", min_value=1, max_value=len(est_lista), step=1, key="num_manual")
+
                     
+
                     if st.button("✅ Registrar por Número", use_container_width=True):
-                        est_sel = estudiantes_curso[num_input - 1]
+
+                        est_sel = est_lista[num_input - 1]
+
                         doc_m, nom_m = est_sel['documento'], est_sel['nombre']
-                        
-                        ahora_m = dt.datetime.now(TZ_COLOMBIA)
+
+                        # Hora Colombia Plan B
+
+                        ahora_m = dt.datetime.now() - dt.timedelta(hours=5)
+
                         hoy_m = ahora_m.strftime("%Y-%m-%d")
+
                         
+
+                        # Check duplicados incluye periodo
+
                         check_m = supabase.table("asistencia").select("id")\
+
                             .eq("estudiante_id", doc_m)\
+
                             .eq("fecha", hoy_m)\
+
                             .eq("tema", tema)\
+
                             .eq("periodo", periodo_actual).execute().data
+
                         
+
                         if not check_m:
+
+                            # Inserción incluye periodo
+
                             supabase.table("asistencia").insert({
-                                "estudiante_id": doc_m, 
-                                "fecha": hoy_m, 
-                                "hora": ahora_m.strftime("%H:%M:%S"), 
-                                "grado": ga, 
-                                "materia": ma, 
-                                "tema": tema, 
-                                "periodo": periodo_actual, 
-                                "profe_id": st.session_state.user
+
+                                "estudiante_id": doc_m, "fecha": hoy_m, "hora": ahora_m.strftime("%H:%M:%S"), 
+
+                                "grado": ga, "materia": ma, "tema": tema, "periodo": periodo_actual, "profe_id": st.session_state.user
+
                             }).execute()
+
                             st.success(f"Asistencia marcada (P{periodo_actual}): {nom_m}")
+
                         else:
+
                             st.warning(f"{nom_m} ya está registrado hoy en P{periodo_actual}.")
+
     else:
+
         st.error("No tienes cursos creados. Ve a la sección de Configuración.")
+
+# ============================================================================== 
+
+
 # --- 4. SECCIÓN DE REPORTES (PDF DETALLADO POR PERIODO - FORMATO INSTITUCIONAL) ---
 elif menu == "📊 Reportes":
     # Importaciones necesarias para esta sección (asegúrate de tener fpdf2, pandas, datetime, io, os instalados)
