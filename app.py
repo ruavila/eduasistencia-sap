@@ -247,7 +247,7 @@ elif menu == "👤 Estudiantes":
             st.success(f"Se generaron carnets para {len(df)} estudiantes en formato Carta.")
             st.download_button("📥 Descargar Carnets", pdf.getvalue(), f"Carnets_{gs}.pdf")
 
-# --- 3. SCANNER QR Y LISTA MANUAL (INTERFAZ SIMPLIFICADA) ---
+# --- 3. SCANNER QR Y LISTA MANUAL (CORREGIDO Y FLEXIBLE) ---
 elif menu == "📷 Scanner QR":
     import datetime as dt
     import time
@@ -266,7 +266,6 @@ elif menu == "📷 Scanner QR":
     cursos = supabase.table("cursos").select("grado, materia").eq("profe_id", st.session_state.user).execute().data
     
     if cursos:
-        # --- INTERFAZ SIMPLIFICADA ---
         col_c1, col_c2 = st.columns([2, 1])
         
         with col_c1:
@@ -294,48 +293,63 @@ elif menu == "📷 Scanner QR":
                     cod = qrcode_scanner(key=f"scanner_{ga}_{periodo_actual}") 
                     
                     if cod:
-                        id_cl = str(cod).strip()
+                        # Limpieza profunda del texto recibido por el escáner QR
+                        id_cl = str(cod).strip().replace('\n', '').replace('\r', '')
                         
-                        # --- BÚSQUEDA ROBUSTA CONTRA ESPACIOS EXTRA ---
-                        # Consultamos por documento y profesor para evitar fallos de matching rígido en el texto del grado
+                        # Búsqueda directa del estudiante por documento y profesor
                         res = supabase.table("estudiantes").select("documento, nombre, grado")\
                             .eq("documento", id_cl)\
                             .eq("profe_id", st.session_state.user).execute().data
                         
-                        # Filtramos en memoria asegurando eliminar espacios residuales
-                        res_filtrado = [e for e in res if str(e.get('grado', '')).strip() == ga]
+                        estudiante_encontrado = None
                         
-                        if res_filtrado:
-                            doc, nom = res_filtrado[0]['documento'], res_filtrado[0]['nombre']
-                            ahora_co = dt.datetime.now(TZ_COLOMBIA)
-                            hoy = ahora_co.strftime("%Y-%m-%d")
+                        if res:
+                            # Normalización de variables para comparación flexible
+                            ga_norm = ga.upper().replace(" ", "").replace("-", "")
                             
-                            check = supabase.table("asistencia").select("id")\
-                                .eq("estudiante_id", doc)\
-                                .eq("fecha", hoy)\
-                                .eq("tema", tema)\
-                                .eq("periodo", periodo_actual).execute().data
+                            for e in res:
+                                grado_db = str(e.get('grado', '')).strip().upper().replace(" ", "").replace("-", "")
+                                if grado_db == ga_norm:
+                                    estudiante_encontrado = e
+                                    break
                             
-                            if not check:
-                                try:
-                                    supabase.table("asistencia").insert({
-                                        "estudiante_id": doc, 
-                                        "fecha": hoy, 
-                                        "hora": ahora_co.strftime("%H:%M:%S"), 
-                                        "grado": ga, 
-                                        "materia": ma, 
-                                        "tema": tema, 
-                                        "periodo": periodo_actual, 
-                                        "profe_id": st.session_state.user
-                                    }).execute()
-                                    st.toast(f"✅ Registrado en P{periodo_actual}: {nom}", icon="👤")
-                                    time.sleep(0.5) 
-                                except Exception as e:
-                                    st.error(f"Error al registrar: {e}")
+                            if estudiante_encontrado:
+                                doc = estudiante_encontrado['documento']
+                                nom = estudiante_encontrado['nombre']
+                                
+                                ahora_co = dt.datetime.now(TZ_COLOMBIA)
+                                hoy = ahora_co.strftime("%Y-%m-%d")
+                                
+                                check = supabase.table("asistencia").select("id")\
+                                    .eq("estudiante_id", doc)\
+                                    .eq("fecha", hoy)\
+                                    .eq("tema", tema)\
+                                    .eq("periodo", periodo_actual).execute().data
+                                
+                                if not check:
+                                    try:
+                                        supabase.table("asistencia").insert({
+                                            "estudiante_id": doc, 
+                                            "fecha": hoy, 
+                                            "hora": ahora_co.strftime("%H:%M:%S"), 
+                                            "grado": ga, 
+                                            "materia": ma, 
+                                            "tema": tema, 
+                                            "periodo": periodo_actual, 
+                                            "profe_id": st.session_state.user
+                                        }).execute()
+                                        st.toast(f"✅ Registrado en P{periodo_actual}: {nom}", icon="👤")
+                                        time.sleep(0.5) 
+                                    except Exception as e:
+                                        st.error(f"Error al registrar: {e}")
+                                else:
+                                    st.toast(f"ℹ️ {nom} ya registrado hoy en P{periodo_actual}", icon="✅")
                             else:
-                                st.toast(f"ℹ️ {nom} ya registrado hoy en P{periodo_actual}", icon="✅")
+                                # El estudiante existe con ese documento pero pertenece a otro grado
+                                grado_real = res[0].get('grado', 'Otro')
+                                st.toast(f"⚠️ El estudiante {res[0]['nombre']} está en el grado {grado_real}, no en {ga}.", icon="❌")
                         else:
-                            st.toast(f"⚠️ Estudiante no encontrado en {ga}: {id_cl}", icon="❌")
+                            st.toast(f"⚠️ Estudiante con documento {id_cl} no registrado en la base de datos.", icon="❌")
                 
                 else:
                     # --- SECCIÓN DE AUSENTES ---
@@ -349,18 +363,13 @@ elif menu == "📷 Scanner QR":
                     hoy_col = ahora_col.strftime("%Y-%m-%d")
                     hora_msj = ahora_col.strftime("%I:%M %p")
                     
-                    if ahora_col.hour < 12:
-                        saludo_bold = "*Buenos días*"
-                    elif 12 <= ahora_col.hour < 18:
-                        saludo_bold = "*Buenas tardes*"
-                    else:
-                        saludo_bold = "*Buenas noches*"
+                    saludo_bold = "*Buenos días*" if ahora_col.hour < 12 else ("*Buenas tardes*" if ahora_col.hour < 18 else "*Buenas noches*")
 
                     todos = supabase.table("estudiantes").select("documento, nombre, whatsapp, grado")\
                         .eq("profe_id", st.session_state.user).execute().data
                     
-                    # Filtrar estudiantes pertenecientes al grado evitando fallos por espacios en blanco
-                    todos_grado = [e for e in todos if str(e.get('grado', '')).strip() == ga]
+                    ga_norm = ga.upper().replace(" ", "").replace("-", "")
+                    todos_grado = [e for e in todos if str(e.get('grado', '')).strip().upper().replace(" ", "").replace("-", "") == ga_norm]
                     
                     asistieron = supabase.table("asistencia").select("estudiante_id")\
                         .eq("grado", ga)\
@@ -388,7 +397,6 @@ elif menu == "📷 Scanner QR":
                                 f"*Área:* {ma}"
                             )
                             
-                            # Codificación URL estándar segura para WhatsApp
                             msg_encoded = quote(cuerpo_msj)
                             link_wa = f"https://wa.me/57{str(aus['whatsapp']).strip()}?text={msg_encoded}"
                             col_b.markdown(f"[📲 Notificar]({link_wa})")
@@ -401,7 +409,8 @@ elif menu == "📷 Scanner QR":
                 est_todos = supabase.table("estudiantes").select("documento, nombre, grado")\
                     .eq("profe_id", st.session_state.user).order("nombre").execute().data
                 
-                est_lista = [e for e in est_todos if str(e.get('grado', '')).strip() == ga]
+                ga_norm = ga.upper().replace(" ", "").replace("-", "")
+                est_lista = [e for e in est_todos if str(e.get('grado', '')).strip().upper().replace(" ", "").replace("-", "") == ga_norm]
                 
                 if est_lista:
                     num_input = st.number_input("Número de lista:", min_value=1, max_value=len(est_lista), step=1, key="num_manual")
