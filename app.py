@@ -247,7 +247,7 @@ elif menu == "👤 Estudiantes":
             st.success(f"Se generaron carnets para {len(df)} estudiantes en formato Carta.")
             st.download_button("📥 Descargar Carnets", pdf.getvalue(), f"Carnets_{gs}.pdf")
 
-# --- 3. SCANNER QR Y LISTA MANUAL (DINÁMICO SEGÚN SELECCIÓN) ---
+# --- 3. SCANNER QR Y LISTA MANUAL (RENOVACIÓN DE KEY POR CURSO) ---
 elif menu == "📷 Scanner QR":
     import datetime as dt
     import time
@@ -272,7 +272,7 @@ elif menu == "📷 Scanner QR":
             opciones_cursos = sorted([f"{r['grado'].strip()} | {r['materia'].strip()}" for r in cursos])
             sel_as = st.selectbox("Seleccione el Curso:", opciones_cursos, key="sel_curso_scan")
             
-            # Extrae dinámicamente el grado (ga) y la materia (ma) del menú seleccionado
+            # Obtención exacta y limpia del grado seleccionado
             ga_raw, ma = [item.strip() for item in sel_as.split(" | ")]
             ga = ga_raw.strip()
         
@@ -287,25 +287,26 @@ elif menu == "📷 Scanner QR":
             
             with tab_qr:
                 if not st.session_state.captura_finalizada:
-                    st.success(f"📋 **Grado: {ga} - {ma}** | Periodo: **{periodo_actual}** | Tema: *{tema}*")
+                    st.success(f"📋 **Curso Activo: {ga} - {ma}** | Periodo: **{periodo_actual}** | Tema: *{tema}*")
                     
                     if st.button("⏹️ Finalizar Captura y Ver Ausentes", type="primary", use_container_width=True):
                         st.session_state.captura_finalizada = True
                         st.rerun()
                     
-                    cod = qrcode_scanner(key=f"scanner_{ga}_{periodo_actual}") 
+                    # CLAVE ÚNICA DINÁMICA: Previene que 605, 705 u 805 reutilicen la instancia de la cámara
+                    scanner_key = f"scanner_{ga}_{ma}_{periodo_actual}".replace(" ", "_")
+                    cod = qrcode_scanner(key=scanner_key) 
                     
                     if cod:
-                        # Limpieza de caracteres residuales de lectura del escáner
+                        # Limpieza profunda del código leído
                         id_cl = str(cod).strip().replace('\n', '').replace('\r', '')
                         
-                        # Búsqueda por documento del estudiante registrado por el docente
+                        # Búsqueda por documento del estudiante vinculado al docente
                         res = supabase.table("estudiantes").select("documento, nombre, grado")\
                             .eq("documento", id_cl)\
                             .eq("profe_id", st.session_state.user).execute().data
                         
                         if res:
-                            # Se toma la información del estudiante encontrado
                             doc = res[0]['documento']
                             nom = res[0]['nombre']
                             
@@ -320,7 +321,7 @@ elif menu == "📷 Scanner QR":
                             
                             if not check:
                                 try:
-                                    # Se guarda exactamente con el grado 'ga' seleccionado en el desplegable
+                                    # Registro explícito utilizando la variable 'ga' seleccionada
                                     supabase.table("asistencia").insert({
                                         "estudiante_id": doc, 
                                         "fecha": hoy, 
@@ -331,7 +332,7 @@ elif menu == "📷 Scanner QR":
                                         "periodo": periodo_actual, 
                                         "profe_id": st.session_state.user
                                     }).execute()
-                                    st.toast(f"✅ Registrado en P{periodo_actual} ({ga}): {nom}", icon="👤")
+                                    st.toast(f"✅ Registrado en {ga} (P{periodo_actual}): {nom}", icon="👤")
                                     time.sleep(0.5) 
                                 except Exception as e:
                                     st.error(f"Error al registrar: {e}")
@@ -357,11 +358,10 @@ elif menu == "📷 Scanner QR":
                     todos = supabase.table("estudiantes").select("documento, nombre, whatsapp, grado")\
                         .eq("profe_id", st.session_state.user).execute().data
                     
-                    # Normaliza la comparación para el grado seleccionado actualmente
-                    ga_norm = ga.upper().replace(" ", "").replace("-", "")
+                    # Comparación exacta garantizada
                     todos_grado = [
                         e for e in todos 
-                        if str(e.get('grado', '')).strip().upper().replace(" ", "").replace("-", "") == ga_norm
+                        if str(e.get('grado', '')).strip().upper() == ga.upper()
                     ]
                     
                     asistieron = supabase.table("asistencia").select("estudiante_id")\
@@ -402,10 +402,9 @@ elif menu == "📷 Scanner QR":
                 est_todos = supabase.table("estudiantes").select("documento, nombre, grado")\
                     .eq("profe_id", st.session_state.user).order("nombre").execute().data
                 
-                ga_norm = ga.upper().replace(" ", "").replace("-", "")
                 est_lista = [
                     e for e in est_todos 
-                    if str(e.get('grado', '')).strip().upper().replace(" ", "").replace("-", "") == ga_norm
+                    if str(e.get('grado', '')).strip().upper() == ga.upper()
                 ]
                 
                 if est_lista:
