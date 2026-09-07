@@ -247,14 +247,13 @@ elif menu == "👤 Estudiantes":
             st.success(f"Se generaron carnets para {len(df)} estudiantes en formato Carta.")
             st.download_button("📥 Descargar Carnets", pdf.getvalue(), f"Carnets_{gs}.pdf")
 
-# --- 3. SCANNER QR Y LISTA MANUAL (FILTRADO DIRECTO POR GRADO Y DOCUMENTO) ---
+# --- 3. SCANNER QR Y LISTA MANUAL (REGISTRO FORZADO AL GRADO SELECCIONADO) ---
 elif menu == "📷 Scanner QR":
     import datetime as dt
     import time
     from urllib.parse import quote
     from zoneinfo import ZoneInfo
 
-    # Configuración de zona horaria oficial Colombia (UTC-5)
     TZ_COLOMBIA = ZoneInfo("America/Bogota")
 
     st.subheader("Captura de Asistencia por Periodo")
@@ -262,22 +261,26 @@ elif menu == "📷 Scanner QR":
     if 'captura_finalizada' not in st.session_state:
         st.session_state.captura_finalizada = False
 
-    # 1. Consulta de cursos vinculados al docente
+    # 1. Consulta de cursos asignados al docente
     cursos = supabase.table("cursos").select("grado, materia").eq("profe_id", st.session_state.user).execute().data
     
     if cursos:
         col_c1, col_c2 = st.columns([2, 1])
         
         with col_c1:
-            opciones_cursos = sorted([f"{r['grado'].strip()} | {r['materia'].strip()}" for r in cursos])
+            # Elimina duplicados y ordena las opciones
+            opciones_cursos = sorted(list(set([f"{str(r['grado']).strip()} | {str(r['materia']).strip()}" for r in cursos])))
             sel_as = st.selectbox("Seleccione el Curso:", opciones_cursos, key="sel_curso_scan")
             
-            # Grado (ga) seleccionado activamente
+            # Asignación directa y limpia del grado activo seleccionado
             ga_raw, ma = [item.strip() for item in sel_as.split(" | ")]
-            ga = ga_raw.strip()
+            ga = str(ga_raw).strip()
         
         with col_c2:
             periodo_actual = st.number_input("Periodo Actual:", min_value=1, max_value=4, value=1, step=1, key="num_periodo")
+        
+        # Indicador visual para confirmar el grado en memoria
+        st.info(f"📍 **Grado Seleccionado:** `{ga}` | **Materia:** `{ma}` | **Periodo:** `{periodo_actual}`")
         
         tema_input = st.text_input("Tema de la clase:", placeholder="Ej: Introducción a la Multimedia")
         tema = tema_input.strip() 
@@ -287,42 +290,44 @@ elif menu == "📷 Scanner QR":
             
             with tab_qr:
                 if not st.session_state.captura_finalizada:
-                    st.success(f"📋 **Curso Activo: {ga} - {ma}** | Periodo: **{periodo_actual}** | Tema: *{tema}*")
+                    st.success(f"📋 **Escanear asistencia para Grado {ga}**")
                     
                     if st.button("⏹️ Finalizar Captura y Ver Ausentes", type="primary", use_container_width=True):
                         st.session_state.captura_finalizada = True
                         st.rerun()
                     
-                    # Key dinámica para reiniciar el componente al cambiar de curso
-                    scanner_key = f"scanner_{ga}_{ma}_{periodo_actual}".replace(" ", "_")
+                    # Genera una clave única basada en el grado para reiniciar el escáner
+                    scanner_key = f"qr_{ga}_{ma}_{periodo_actual}"
                     cod = qrcode_scanner(key=scanner_key) 
                     
                     if cod:
-                        # Limpieza del código leído
                         id_cl = str(cod).strip().replace('\n', '').replace('\r', '')
                         
-                        # --- BÚSQUEDA CORREGIDA ---
-                        # Obliga a buscar el estudiante ÚNICAMENTE si pertenece al grado seleccionado (ga)
+                        # Búsqueda global del estudiante por documento bajo este docente
                         res_est = supabase.table("estudiantes").select("documento, nombre, grado")\
                             .eq("documento", id_cl)\
-                            .eq("grado", ga)\
                             .eq("profe_id", st.session_state.user).execute().data
                         
                         if res_est:
-                            doc = res_est[0]['documento']
-                            nom = res_est[0]['nombre']
+                            est_data = res_est[0]
+                            doc = est_data['documento']
+                            nom = est_data['nombre']
+                            grado_bd = str(est_data.get('grado', '')).strip()
                             
                             ahora_co = dt.datetime.now(TZ_COLOMBIA)
-                            hoy = me_hoy = ahora_co.strftime("%Y-%m-%d")
+                            hoy = ahora_co.strftime("%Y-%m-%d")
                             
+                            # Verifica si ya se registró asistencia hoy para este grado y materia
                             check = supabase.table("asistencia").select("id")\
                                 .eq("estudiante_id", doc)\
                                 .eq("fecha", hoy)\
-                                .eq("tema", tema)\
+                                .eq("grado", ga)\
+                                .eq("materia", ma)\
                                 .eq("periodo", periodo_actual).execute().data
                             
                             if not check:
                                 try:
+                                    # Guarda la asistencia usando EXPLÍCITAMENTE 'ga' (605, 705, etc.)
                                     supabase.table("asistencia").insert({
                                         "estudiante_id": doc, 
                                         "fecha": hoy, 
@@ -333,23 +338,20 @@ elif menu == "📷 Scanner QR":
                                         "periodo": periodo_actual, 
                                         "profe_id": st.session_state.user
                                     }).execute()
-                                    st.toast(f"✅ Registrado en {ga}: {nom}", icon="👤")
+                                    st.toast(f"✅ Registrado en Grado {ga}: {nom}", icon="👤")
+                                    
+                                    # Si el estudiante estaba guardado como '805' u otro grado, actualiza su grado actual
+                                    if grado_bd != ga:
+                                        supabase.table("estudiantes").update({"grado": ga}).eq("documento", doc).eq("profe_id", st.session_state.user).execute()
+                                        st.toast(f"ℹ️ Grado de {nom} actualizado en BD a {ga}", icon="📝")
+
                                     time.sleep(0.5) 
                                 except Exception as e:
-                                    st.error(f"Error al registrar: {e}")
+                                    st.error(f"Error al registrar asistencia: {e}")
                             else:
-                                st.toast(f"ℹ️ {nom} ya registrado hoy en P{periodo_actual}", icon="✅")
+                                st.toast(f"ℹ️ {nom} ya registrado hoy en {ga} (P{periodo_actual})", icon="✅")
                         else:
-                            # Verificación de diagnóstico: comprueba si el estudiante existe en la BD pero en otro grado
-                            verif_otro = supabase.table("estudiantes").select("nombre, grado")\
-                                .eq("documento", id_cl)\
-                                .eq("profe_id", st.session_state.user).execute().data
-                            
-                            if verif_otro:
-                                grado_registrado = verif_otro[0]['grado']
-                                st.toast(f"⚠️ {verif_otro[0]['nombre']} está registrado en el grado {grado_registrado}, no en {ga}.", icon="❌")
-                            else:
-                                st.toast(f"⚠️ Documento {id_cl} no encontrado en la base de datos.", icon="❌")
+                            st.toast(f"⚠️ El documento {id_cl} no se encuentra registrado.", icon="❌")
                 
                 else:
                     # --- SECCIÓN DE AUSENTES ---
@@ -365,15 +367,14 @@ elif menu == "📷 Scanner QR":
                     
                     saludo_bold = "*Buenos días*" if ahora_col.hour < 12 else ("*Buenas tardes*" if ahora_col.hour < 18 else "*Buenas noches*")
 
-                    # Filtrado de estudiantes directamente en Supabase por el grado activo 'ga'
                     todos_grado = supabase.table("estudiantes").select("documento, nombre, whatsapp, grado")\
                         .eq("grado", ga)\
                         .eq("profe_id", st.session_state.user).execute().data
                     
                     asistieron = supabase.table("asistencia").select("estudiante_id")\
                         .eq("grado", ga)\
+                        .eq("materia", ma)\
                         .eq("fecha", hoy_col)\
-                        .eq("tema", tema)\
                         .eq("periodo", periodo_actual)\
                         .eq("profe_id", st.session_state.user).execute().data
                     
@@ -388,7 +389,7 @@ elif menu == "📷 Scanner QR":
                             cuerpo_msj = (
                                 f"{saludo_bold}, señor(a) padre de familia o acudiente. La Institución Educativa San "
                                 f"Antonio de Padua le informa que el estudiante *{aus['nombre']}* no se "
-                                f"presentó el día de hoy a la clase de *{ma}*.\n\n"
+                                f"presentó el día de hoy a la clase de *{ma}* ({ga}).\n\n"
                                 f"*Hora de reporte:* {hora_msj}\n"
                                 f"*Tema tratado:* {tema}.\n\n"
                                 f"Institucionalmente,\n\n"
@@ -400,7 +401,7 @@ elif menu == "📷 Scanner QR":
                             link_wa = f"https://wa.me/57{str(aus['whatsapp']).strip()}?text={msg_encoded}"
                             col_b.markdown(f"[📲 Notificar]({link_wa})")
                     else:
-                        st.success("¡Asistencia completa!")
+                        st.success("¡Asistencia completa para este grado!")
 
             with tab_lista:
                 # --- PLAN B: REGISTRO MANUAL ---
@@ -412,7 +413,7 @@ elif menu == "📷 Scanner QR":
                     .order("nombre").execute().data
                 
                 if est_lista:
-                    num_input = st.number_input("Número de lista:", min_value=1, max_value=len(est_lista), step=1, key="num_manual")
+                    num_input = st.number_input("Número de lista:", min_value=1, max_value=len(est_lista), step=1, key=f"num_manual_{ga}")
                     
                     if st.button("✅ Registrar por Número", use_container_width=True):
                         est_sel = est_lista[num_input - 1]
@@ -424,7 +425,8 @@ elif menu == "📷 Scanner QR":
                         check_m = supabase.table("asistencia").select("id")\
                             .eq("estudiante_id", doc_m)\
                             .eq("fecha", hoy_m)\
-                            .eq("tema", tema)\
+                            .eq("grado", ga)\
+                            .eq("materia", ma)\
                             .eq("periodo", periodo_actual).execute().data
                         
                         if not check_m:
@@ -438,9 +440,11 @@ elif menu == "📷 Scanner QR":
                                 "periodo": periodo_actual, 
                                 "profe_id": st.session_state.user
                             }).execute()
-                            st.success(f"Asistencia marcada (P{periodo_actual} - {ga}): {nom_m}")
+                            st.success(f"Asistencia marcada ({ga} - P{periodo_actual}): {nom_m}")
                         else:
-                            st.warning(f"{nom_m} ya está registrado hoy en P{periodo_actual}.")
+                            st.warning(f"{nom_m} ya está registrado hoy en {ga} (P{periodo_actual}).")
+                else:
+                    st.warning(f"No hay estudiantes registrados en la lista del grado {ga}.")
     else:
         st.error("No tienes cursos creados. Ve a la sección de Configuración.")
 # --- 4. SECCIÓN DE REPORTES (PDF DETALLADO POR PERIODO - FORMATO INSTITUCIONAL) ---
