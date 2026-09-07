@@ -606,8 +606,6 @@ elif menu == "📷 Scanner QR":
         st.error("No tienes cursos creados. Ve a la sección de Configuración.")
 
 # ============================================================================== 
-
-
 # --- 4. SECCIÓN DE REPORTES (PDF DETALLADO POR PERIODO - FORMATO INSTITUCIONAL) ---
 elif menu == "📊 Reportes":
     # Importaciones necesarias para esta sección (asegúrate de tener fpdf2, pandas, datetime, io, os instalados)
