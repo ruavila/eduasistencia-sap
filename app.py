@@ -247,10 +247,15 @@ elif menu == "👤 Estudiantes":
             st.success(f"Se generaron carnets para {len(df)} estudiantes en formato Carta.")
             st.download_button("📥 Descargar Carnets", pdf.getvalue(), f"Carnets_{gs}.pdf")
 
-# --- 3. SCANNER QR Y LISTA MANUAL (INTERFAZ SIMPLIFICADA) ---
+# --- 3. SCANNER QR Y LISTA MANUAL (OPTIMIZADO CON SESSION STATE) ---
 elif menu == "📷 Scanner QR":
     import datetime as dt
     import time
+    from urllib.parse import quote
+    from zoneinfo import ZoneInfo
+
+    TZ_COLOMBIA = ZoneInfo("America/Bogota")
+
     st.subheader("Captura de Asistencia por Periodo")
     
     if 'captura_finalizada' not in st.session_state:
@@ -260,53 +265,56 @@ elif menu == "📷 Scanner QR":
     cursos = supabase.table("cursos").select("grado, materia").eq("profe_id", st.session_state.user).execute().data
     
     if cursos:
-        # --- INTERFAZ SIMPLIFICADA: Sin expander y sin fecha ---
-        # Se organizan los elementos en columnas directas en la página
         col_c1, col_c2 = st.columns([2, 1])
         
         with col_c1:
-            # --- LÍNEA CORREGIDA CON sorted() ---
             opciones_cursos = sorted([f"{r['grado']} | {r['materia']}" for r in cursos])
             sel_as = st.selectbox("Seleccione el Curso:", opciones_cursos, key="sel_curso_scan")
-            # ------------------------------------
             ga, ma = sel_as.split(" | ")
         
         with col_c2:
-            # Entrada para el Periodo Académico
             periodo_actual = st.number_input("Periodo Actual:", min_value=1, max_value=4, value=1, step=1, key="num_periodo")
         
-        # Entrada para el Tema de la clase
         tema_input = st.text_input("Tema de la clase:", placeholder="Ej: Introducción a la Multimedia")
         tema = tema_input.strip() 
 
-        # Solo proceder si hay tema definido
+        # --- OPTIMIZACIÓN: Cargar lista de estudiantes solo si cambia el curso ---
+        clave_cache_curso = f"estudiantes_{ga}_{st.session_state.user}"
+        if clave_cache_curso not in st.session_state:
+            st.session_state[clave_cache_curso] = supabase.table("estudiantes")\
+                .select("documento, nombre, whatsapp")\
+                .eq("grado", ga)\
+                .eq("profe_id", st.session_state.user)\
+                .order("nombre")\
+                .execute().data
+
+        # Lista persistente desde la memoria de sesión
+        estudiantes_curso = st.session_state[clave_cache_curso]
+        # --------------------------------------------------------------------------
+
         if tema:
             tab_qr, tab_lista = st.tabs(["📷 Escáner QR", "🔢 Número de Lista (Plan B)"])
             
             with tab_qr:
                 if not st.session_state.captura_finalizada:
-                    # Barra de información resumida
                     st.success(f"📋 **{ga} - {ma}** | Periodo: **{periodo_actual}** | Tema: *{tema}*")
                     
                     if st.button("⏹️ Finalizar Captura y Ver Ausentes", type="primary", use_container_width=True):
                         st.session_state.captura_finalizada = True
                         st.rerun()
                     
-                    # Escáner con clave dinámica por grado y periodo
                     cod = qrcode_scanner(key=f"scanner_{ga}_{periodo_actual}") 
                     
                     if cod:
                         id_cl = str(cod).strip()
-                        # Búsqueda en la base de datos de estudiantes
-                        res = supabase.table("estudiantes").select("documento, nombre").eq("documento", id_cl).eq("grado", ga).eq("profe_id", st.session_state.user).execute().data
+                        # Búsqueda local inmediata en st.session_state sin hacer query a Supabase
+                        res = [e for e in estudiantes_curso if str(e['documento']).strip() == id_cl]
                         
                         if res:
                             doc, nom = res[0]['documento'], res[0]['nombre']
-                            # Ajuste de hora Colombia para el registro (UTC-5)
-                            ahora_co = dt.datetime.now() - dt.timedelta(hours=5)
+                            ahora_co = dt.datetime.now(TZ_COLOMBIA)
                             hoy = ahora_co.strftime("%Y-%m-%d")
                             
-                            # Check de duplicados incluye PERIODO
                             check = supabase.table("asistencia").select("id")\
                                 .eq("estudiante_id", doc)\
                                 .eq("fecha", hoy)\
@@ -314,7 +322,6 @@ elif menu == "📷 Scanner QR":
                                 .eq("periodo", periodo_actual).execute().data
                             
                             if not check:
-                                # Inserción incluye PERIODO
                                 try:
                                     supabase.table("asistencia").insert({
                                         "estudiante_id": doc, 
@@ -327,7 +334,6 @@ elif menu == "📷 Scanner QR":
                                         "profe_id": st.session_state.user
                                     }).execute()
                                     st.toast(f"✅ Registrado en P{periodo_actual}: {nom}", icon="👤")
-                                    # Pequeña pausa para evitar registros múltiples accidentales
                                     time.sleep(0.5) 
                                 except Exception as e:
                                     st.error(f"Error al registrar: {e}")
@@ -344,20 +350,12 @@ elif menu == "📷 Scanner QR":
 
                     st.warning(f"⚠️ Estudiantes Ausentes hoy en {ga} (Periodo {periodo_actual}):")
                     
-                    # Tiempo local Colombia
-                    ahora_col = dt.datetime.now() - dt.timedelta(hours=5)
+                    ahora_col = dt.datetime.now(TZ_COLOMBIA)
                     hoy_col = ahora_col.strftime("%Y-%m-%d")
                     hora_msj = ahora_col.strftime("%I:%M %p")
                     
-                    # Determinar saludo cordial en negrita
-                    if ahora_col.hour < 12: saludo_bold = "*Buenos días*"
-                    elif 12 <= ahora_col.hour < 18: saludo_bold = "*Buenas tardes*"
-                    else: saludo_bold = "*Buenas noches*"
+                    saludo_bold = "*Buenos días*" if ahora_col.hour < 12 else "*Buenas tardes*" if ahora_col.hour < 18 else "*Buenas noches*"
 
-                    # Consultas a Supabase
-                    todos = supabase.table("estudiantes").select("documento, nombre, whatsapp").eq("grado", ga).eq("profe_id", st.session_state.user).execute().data
-                    
-                    # Consulta de asistieron filtra por PERIODO
                     asistieron = supabase.table("asistencia").select("estudiante_id")\
                         .eq("grado", ga)\
                         .eq("fecha", hoy_col)\
@@ -365,16 +363,15 @@ elif menu == "📷 Scanner QR":
                         .eq("periodo", periodo_actual)\
                         .eq("profe_id", st.session_state.user).execute().data
                     
-                    # Lógica de comparación
-                    ids_asistieron = [str(a['estudiante_id']).strip() for a in asistieron]
-                    ausentes = [e for e in todos if str(e['documento']).strip() not in ids_asistieron]
+                    ids_asistieron = {str(a['estudiante_id']).strip() for a in asistieron}
+                    # Usa la lista en memoria en lugar de consultar a la BD otra vez
+                    ausentes = [e for e in estudiantes_curso if str(e['documento']).strip() not in ids_asistieron]
                     
                     if ausentes:
                         for aus in ausentes:
                             col_a, col_b = st.columns([3, 1])
                             col_a.write(f"❌ {aus['nombre']}")
                             
-                            # CUERPO DEL MENSAJE IDÉNTICO A LA IMAGEN
                             cuerpo_msj = (
                                 f"{saludo_bold}, señor(a) padre de familia o acudiente. La Institución Educativa San "
                                 f"Antonio de Padua le informa que el estudiante *{aus['nombre']}* no se "
@@ -386,8 +383,7 @@ elif menu == "📷 Scanner QR":
                                 f"*Área:* {ma}"
                             )
                             
-                            # Codificación para WhatsApp
-                            msg_encoded = cuerpo_msj.replace(" ", "%20").replace("\n", "%0A")
+                            msg_encoded = quote(cuerpo_msj)
                             link_wa = f"https://wa.me/57{aus['whatsapp']}?text={msg_encoded}"
                             col_b.markdown(f"[📲 Notificar]({link_wa})")
                     else:
@@ -396,19 +392,17 @@ elif menu == "📷 Scanner QR":
             with tab_lista:
                 # --- PLAN B: REGISTRO MANUAL ---
                 st.info(f"Registro Manual para {ga} - {ma} | Periodo: {periodo_actual}")
-                est_lista = supabase.table("estudiantes").select("documento, nombre").eq("grado", ga).eq("profe_id", st.session_state.user).order("nombre").execute().data
                 
-                if est_lista:
-                    num_input = st.number_input("Número de lista:", min_value=1, max_value=len(est_lista), step=1, key="num_manual")
+                if estudiantes_curso:
+                    num_input = st.number_input("Número de lista:", min_value=1, max_value=len(estudiantes_curso), step=1, key="num_manual")
                     
                     if st.button("✅ Registrar por Número", use_container_width=True):
-                        est_sel = est_lista[num_input - 1]
+                        est_sel = estudiantes_curso[num_input - 1]
                         doc_m, nom_m = est_sel['documento'], est_sel['nombre']
-                        # Hora Colombia Plan B
-                        ahora_m = dt.datetime.now() - dt.timedelta(hours=5)
+                        
+                        ahora_m = dt.datetime.now(TZ_COLOMBIA)
                         hoy_m = ahora_m.strftime("%Y-%m-%d")
                         
-                        # Check duplicados incluye periodo
                         check_m = supabase.table("asistencia").select("id")\
                             .eq("estudiante_id", doc_m)\
                             .eq("fecha", hoy_m)\
@@ -416,17 +410,21 @@ elif menu == "📷 Scanner QR":
                             .eq("periodo", periodo_actual).execute().data
                         
                         if not check_m:
-                            # Inserción incluye periodo
                             supabase.table("asistencia").insert({
-                                "estudiante_id": doc_m, "fecha": hoy_m, "hora": ahora_m.strftime("%H:%M:%S"), 
-                                "grado": ga, "materia": ma, "tema": tema, "periodo": periodo_actual, "profe_id": st.session_state.user
+                                "estudiante_id": doc_m, 
+                                "fecha": hoy_m, 
+                                "hora": ahora_m.strftime("%H:%M:%S"), 
+                                "grado": ga, 
+                                "materia": ma, 
+                                "tema": tema, 
+                                "periodo": periodo_actual, 
+                                "profe_id": st.session_state.user
                             }).execute()
                             st.success(f"Asistencia marcada (P{periodo_actual}): {nom_m}")
                         else:
                             st.warning(f"{nom_m} ya está registrado hoy en P{periodo_actual}.")
     else:
         st.error("No tienes cursos creados. Ve a la sección de Configuración.")
-# ==============================================================================
 # --- 4. SECCIÓN DE REPORTES (PDF DETALLADO POR PERIODO - FORMATO INSTITUCIONAL) ---
 elif menu == "📊 Reportes":
     # Importaciones necesarias para esta sección (asegúrate de tener fpdf2, pandas, datetime, io, os instalados)
