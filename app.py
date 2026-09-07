@@ -247,7 +247,7 @@ elif menu == "👤 Estudiantes":
             st.success(f"Se generaron carnets para {len(df)} estudiantes en formato Carta.")
             st.download_button("📥 Descargar Carnets", pdf.getvalue(), f"Carnets_{gs}.pdf")
 
-# --- 3. SCANNER QR Y LISTA MANUAL (CORREGIDO Y FLEXIBLE) ---
+# --- 3. SCANNER QR Y LISTA MANUAL (DINÁMICO SEGÚN SELECCIÓN) ---
 elif menu == "📷 Scanner QR":
     import datetime as dt
     import time
@@ -271,7 +271,10 @@ elif menu == "📷 Scanner QR":
         with col_c1:
             opciones_cursos = sorted([f"{r['grado'].strip()} | {r['materia'].strip()}" for r in cursos])
             sel_as = st.selectbox("Seleccione el Curso:", opciones_cursos, key="sel_curso_scan")
-            ga, ma = [item.strip() for item in sel_as.split(" | ")]
+            
+            # Extrae dinámicamente el grado (ga) y la materia (ma) del menú seleccionado
+            ga_raw, ma = [item.strip() for item in sel_as.split(" | ")]
+            ga = ga_raw.strip()
         
         with col_c2:
             periodo_actual = st.number_input("Periodo Actual:", min_value=1, max_value=4, value=1, step=1, key="num_periodo")
@@ -284,7 +287,7 @@ elif menu == "📷 Scanner QR":
             
             with tab_qr:
                 if not st.session_state.captura_finalizada:
-                    st.success(f"📋 **{ga} - {ma}** | Periodo: **{periodo_actual}** | Tema: *{tema}*")
+                    st.success(f"📋 **Grado: {ga} - {ma}** | Periodo: **{periodo_actual}** | Tema: *{tema}*")
                     
                     if st.button("⏹️ Finalizar Captura y Ver Ausentes", type="primary", use_container_width=True):
                         st.session_state.captura_finalizada = True
@@ -293,63 +296,49 @@ elif menu == "📷 Scanner QR":
                     cod = qrcode_scanner(key=f"scanner_{ga}_{periodo_actual}") 
                     
                     if cod:
-                        # Limpieza profunda del texto recibido por el escáner QR
+                        # Limpieza de caracteres residuales de lectura del escáner
                         id_cl = str(cod).strip().replace('\n', '').replace('\r', '')
                         
-                        # Búsqueda directa del estudiante por documento y profesor
+                        # Búsqueda por documento del estudiante registrado por el docente
                         res = supabase.table("estudiantes").select("documento, nombre, grado")\
                             .eq("documento", id_cl)\
                             .eq("profe_id", st.session_state.user).execute().data
                         
-                        estudiante_encontrado = None
-                        
                         if res:
-                            # Normalización de variables para comparación flexible
-                            ga_norm = ga.upper().replace(" ", "").replace("-", "")
+                            # Se toma la información del estudiante encontrado
+                            doc = res[0]['documento']
+                            nom = res[0]['nombre']
                             
-                            for e in res:
-                                grado_db = str(e.get('grado', '')).strip().upper().replace(" ", "").replace("-", "")
-                                if grado_db == ga_norm:
-                                    estudiante_encontrado = e
-                                    break
+                            ahora_co = dt.datetime.now(TZ_COLOMBIA)
+                            hoy = ahora_co.strftime("%Y-%m-%d")
                             
-                            if estudiante_encontrado:
-                                doc = estudiante_encontrado['documento']
-                                nom = estudiante_encontrado['nombre']
-                                
-                                ahora_co = dt.datetime.now(TZ_COLOMBIA)
-                                hoy = ahora_co.strftime("%Y-%m-%d")
-                                
-                                check = supabase.table("asistencia").select("id")\
-                                    .eq("estudiante_id", doc)\
-                                    .eq("fecha", hoy)\
-                                    .eq("tema", tema)\
-                                    .eq("periodo", periodo_actual).execute().data
-                                
-                                if not check:
-                                    try:
-                                        supabase.table("asistencia").insert({
-                                            "estudiante_id": doc, 
-                                            "fecha": hoy, 
-                                            "hora": ahora_co.strftime("%H:%M:%S"), 
-                                            "grado": ga, 
-                                            "materia": ma, 
-                                            "tema": tema, 
-                                            "periodo": periodo_actual, 
-                                            "profe_id": st.session_state.user
-                                        }).execute()
-                                        st.toast(f"✅ Registrado en P{periodo_actual}: {nom}", icon="👤")
-                                        time.sleep(0.5) 
-                                    except Exception as e:
-                                        st.error(f"Error al registrar: {e}")
-                                else:
-                                    st.toast(f"ℹ️ {nom} ya registrado hoy en P{periodo_actual}", icon="✅")
+                            check = supabase.table("asistencia").select("id")\
+                                .eq("estudiante_id", doc)\
+                                .eq("fecha", hoy)\
+                                .eq("tema", tema)\
+                                .eq("periodo", periodo_actual).execute().data
+                            
+                            if not check:
+                                try:
+                                    # Se guarda exactamente con el grado 'ga' seleccionado en el desplegable
+                                    supabase.table("asistencia").insert({
+                                        "estudiante_id": doc, 
+                                        "fecha": hoy, 
+                                        "hora": ahora_co.strftime("%H:%M:%S"), 
+                                        "grado": ga, 
+                                        "materia": ma, 
+                                        "tema": tema, 
+                                        "periodo": periodo_actual, 
+                                        "profe_id": st.session_state.user
+                                    }).execute()
+                                    st.toast(f"✅ Registrado en P{periodo_actual} ({ga}): {nom}", icon="👤")
+                                    time.sleep(0.5) 
+                                except Exception as e:
+                                    st.error(f"Error al registrar: {e}")
                             else:
-                                # El estudiante existe con ese documento pero pertenece a otro grado
-                                grado_real = res[0].get('grado', 'Otro')
-                                st.toast(f"⚠️ El estudiante {res[0]['nombre']} está en el grado {grado_real}, no en {ga}.", icon="❌")
+                                st.toast(f"ℹ️ {nom} ya registrado hoy en P{periodo_actual}", icon="✅")
                         else:
-                            st.toast(f"⚠️ Estudiante con documento {id_cl} no registrado en la base de datos.", icon="❌")
+                            st.toast(f"⚠️ Estudiante con documento {id_cl} no encontrado.", icon="❌")
                 
                 else:
                     # --- SECCIÓN DE AUSENTES ---
@@ -357,7 +346,7 @@ elif menu == "📷 Scanner QR":
                         st.session_state.captura_finalizada = False
                         st.rerun()
 
-                    st.warning(f"⚠️ Estudiantes Ausentes hoy en {ga} (Periodo {periodo_actual}):")
+                    st.warning(f"⚠️ Estudiantes Ausentes hoy en Grado {ga} (Periodo {periodo_actual}):")
                     
                     ahora_col = dt.datetime.now(TZ_COLOMBIA)
                     hoy_col = ahora_col.strftime("%Y-%m-%d")
@@ -368,8 +357,12 @@ elif menu == "📷 Scanner QR":
                     todos = supabase.table("estudiantes").select("documento, nombre, whatsapp, grado")\
                         .eq("profe_id", st.session_state.user).execute().data
                     
+                    # Normaliza la comparación para el grado seleccionado actualmente
                     ga_norm = ga.upper().replace(" ", "").replace("-", "")
-                    todos_grado = [e for e in todos if str(e.get('grado', '')).strip().upper().replace(" ", "").replace("-", "") == ga_norm]
+                    todos_grado = [
+                        e for e in todos 
+                        if str(e.get('grado', '')).strip().upper().replace(" ", "").replace("-", "") == ga_norm
+                    ]
                     
                     asistieron = supabase.table("asistencia").select("estudiante_id")\
                         .eq("grado", ga)\
@@ -405,12 +398,15 @@ elif menu == "📷 Scanner QR":
 
             with tab_lista:
                 # --- PLAN B: REGISTRO MANUAL ---
-                st.info(f"Registro Manual para {ga} - {ma} | Periodo: {periodo_actual}")
+                st.info(f"Registro Manual para Grado {ga} - {ma} | Periodo: {periodo_actual}")
                 est_todos = supabase.table("estudiantes").select("documento, nombre, grado")\
                     .eq("profe_id", st.session_state.user).order("nombre").execute().data
                 
                 ga_norm = ga.upper().replace(" ", "").replace("-", "")
-                est_lista = [e for e in est_todos if str(e.get('grado', '')).strip().upper().replace(" ", "").replace("-", "") == ga_norm]
+                est_lista = [
+                    e for e in est_todos 
+                    if str(e.get('grado', '')).strip().upper().replace(" ", "").replace("-", "") == ga_norm
+                ]
                 
                 if est_lista:
                     num_input = st.number_input("Número de lista:", min_value=1, max_value=len(est_lista), step=1, key="num_manual")
@@ -439,7 +435,7 @@ elif menu == "📷 Scanner QR":
                                 "periodo": periodo_actual, 
                                 "profe_id": st.session_state.user
                             }).execute()
-                            st.success(f"Asistencia marcada (P{periodo_actual}): {nom_m}")
+                            st.success(f"Asistencia marcada (P{periodo_actual} - {ga}): {nom_m}")
                         else:
                             st.warning(f"{nom_m} ya está registrado hoy en P{periodo_actual}.")
     else:
