@@ -247,7 +247,7 @@ elif menu == "👤 Estudiantes":
             st.success(f"Se generaron carnets para {len(df)} estudiantes en formato Carta.")
             st.download_button("📥 Descargar Carnets", pdf.getvalue(), f"Carnets_{gs}.pdf")
 
-# --- 3. SCANNER QR Y LISTA MANUAL (OPTIMIZADO CON SESSION STATE) ---
+# --- 3. SCANNER QR Y LISTA MANUAL (CON NORMALIZACIÓN DE DOCUMENTO) ---
 elif menu == "📷 Scanner QR":
     import datetime as dt
     import time
@@ -260,6 +260,17 @@ elif menu == "📷 Scanner QR":
     
     if 'captura_finalizada' not in st.session_state:
         st.session_state.captura_finalizada = False
+
+    # Función para normalizar cadenas (quita ceros a la izquierda, espacios y caracteres extra)
+    def limpiar_doc(doc):
+        if doc is None:
+            return ""
+        d = str(doc).strip()
+        # Remueve .0 si viene formateado como float desde Excel
+        if d.endswith(".0"):
+            d = d[:-2]
+        # Quita ceros a la izquierda si los hay para equiparar enteros y texto
+        return d.lstrip("0")
 
     # 1. Consulta de cursos vinculados al docente
     cursos = supabase.table("cursos").select("grado, materia").eq("profe_id", st.session_state.user).execute().data
@@ -278,19 +289,23 @@ elif menu == "📷 Scanner QR":
         tema_input = st.text_input("Tema de la clase:", placeholder="Ej: Introducción a la Multimedia")
         tema = tema_input.strip() 
 
-        # --- OPTIMIZACIÓN: Cargar lista de estudiantes solo si cambia el curso ---
+        # Cargar estudiantes normalizando el documento
         clave_cache_curso = f"estudiantes_{ga}_{st.session_state.user}"
         if clave_cache_curso not in st.session_state:
-            st.session_state[clave_cache_curso] = supabase.table("estudiantes")\
+            res_bd = supabase.table("estudiantes")\
                 .select("documento, nombre, whatsapp")\
                 .eq("grado", ga)\
                 .eq("profe_id", st.session_state.user)\
                 .order("nombre")\
                 .execute().data
+            
+            # Guardamos el documento original y la versión limpia para comparaciones
+            st.session_state[clave_cache_curso] = [
+                {**e, "doc_limpio": limpiar_doc(e['documento'])} 
+                for e in res_bd
+            ]
 
-        # Lista persistente desde la memoria de sesión
         estudiantes_curso = st.session_state[clave_cache_curso]
-        # --------------------------------------------------------------------------
 
         if tema:
             tab_qr, tab_lista = st.tabs(["📷 Escáner QR", "🔢 Número de Lista (Plan B)"])
@@ -306,10 +321,21 @@ elif menu == "📷 Scanner QR":
                     cod = qrcode_scanner(key=f"scanner_{ga}_{periodo_actual}") 
                     
                     if cod:
-                        id_cl = str(cod).strip()
-                        # Búsqueda local inmediata en st.session_state sin hacer query a Supabase
-                        res = [e for e in estudiantes_curso if str(e['documento']).strip() == id_cl]
+                        id_cl_limpio = limpiar_doc(cod)
                         
+                        # 1. Búsqueda local primaria (rápida, comparando documentos limpios)
+                        res = [e for e in estudiantes_curso if e['doc_limpio'] == id_cl_limpio]
+                        
+                        # 2. Búsqueda secundaria en la BD por si el caché no está actualizado
+                        if not res:
+                            res_bd_directa = supabase.table("estudiantes")\
+                                .select("documento, nombre")\
+                                .eq("grado", ga)\
+                                .eq("profe_id", st.session_state.user)\
+                                .execute().data
+                            
+                            res = [e for e in res_bd_directa if limpiar_doc(e['documento']) == id_cl_limpio]
+
                         if res:
                             doc, nom = res[0]['documento'], res[0]['nombre']
                             ahora_co = dt.datetime.now(TZ_COLOMBIA)
@@ -340,7 +366,7 @@ elif menu == "📷 Scanner QR":
                             else:
                                 st.toast(f"ℹ️ {nom} ya registrado hoy en P{periodo_actual}", icon="✅")
                         else:
-                            st.toast(f"⚠️ Estudiante no encontrado en {ga}: {id_cl}", icon="❌")
+                            st.toast(f"⚠️ Estudiante no encontrado en {ga} (QR Leído: '{cod}')", icon="❌")
                 
                 else:
                     # --- SECCIÓN DE AUSENTES ---
@@ -363,9 +389,8 @@ elif menu == "📷 Scanner QR":
                         .eq("periodo", periodo_actual)\
                         .eq("profe_id", st.session_state.user).execute().data
                     
-                    ids_asistieron = {str(a['estudiante_id']).strip() for a in asistieron}
-                    # Usa la lista en memoria en lugar de consultar a la BD otra vez
-                    ausentes = [e for e in estudiantes_curso if str(e['documento']).strip() not in ids_asistieron]
+                    ids_asistieron_limpios = {limpiar_doc(a['estudiante_id']) for a in asistieron}
+                    ausentes = [e for e in estudiantes_curso if e['doc_limpio'] not in ids_asistieron_limpios]
                     
                     if ausentes:
                         for aus in ausentes:
@@ -390,7 +415,6 @@ elif menu == "📷 Scanner QR":
                         st.success("¡Asistencia completa!")
 
             with tab_lista:
-                # --- PLAN B: REGISTRO MANUAL ---
                 st.info(f"Registro Manual para {ga} - {ma} | Periodo: {periodo_actual}")
                 
                 if estudiantes_curso:
