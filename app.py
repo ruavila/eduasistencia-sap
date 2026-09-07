@@ -247,7 +247,7 @@ elif menu == "👤 Estudiantes":
             st.success(f"Se generaron carnets para {len(df)} estudiantes en formato Carta.")
             st.download_button("📥 Descargar Carnets", pdf.getvalue(), f"Carnets_{gs}.pdf")
 
-# --- 3. SCANNER QR Y LISTA MANUAL (CON NORMALIZACIÓN DE DOCUMENTO) ---
+# --- 3. SCANNER QR Y LISTA MANUAL (CON LIMPIEZA DE CACHÉ Y GRADO) ---
 elif menu == "📷 Scanner QR":
     import datetime as dt
     import time
@@ -261,58 +261,71 @@ elif menu == "📷 Scanner QR":
     if 'captura_finalizada' not in st.session_state:
         st.session_state.captura_finalizada = False
 
-    # Función para normalizar cadenas (quita ceros a la izquierda, espacios y caracteres extra)
     def limpiar_doc(doc):
         if doc is None:
             return ""
         d = str(doc).strip()
-        # Remueve .0 si viene formateado como float desde Excel
         if d.endswith(".0"):
             d = d[:-2]
-        # Quita ceros a la izquierda si los hay para equiparar enteros y texto
         return d.lstrip("0")
 
     # 1. Consulta de cursos vinculados al docente
     cursos = supabase.table("cursos").select("grado, materia").eq("profe_id", st.session_state.user).execute().data
     
     if cursos:
-        col_c1, col_c2 = st.columns([2, 1])
+        col_c1, col_c2, col_c3 = st.columns([2, 1, 1])
         
         with col_c1:
-            opciones_cursos = sorted([f"{r['grado']} | {r['materia']}" for r in cursos])
+            opciones_cursos = sorted([f"{r['grado'].strip()} | {r['materia'].strip()}" for r in cursos])
             sel_as = st.selectbox("Seleccione el Curso:", opciones_cursos, key="sel_curso_scan")
-            ga, ma = sel_as.split(" | ")
+            ga, ma = [part.strip() for part in sel_as.split(" | ")]
         
         with col_c2:
             periodo_actual = st.number_input("Periodo Actual:", min_value=1, max_value=4, value=1, step=1, key="num_periodo")
-        
+
+        with col_c3:
+            st.write("") # Espaciador visual
+            # Botón para forzar actualización de la lista de la BD si agregaste un alumno reciente
+            if st.button("🔄 Recargar Lista", use_container_width=True):
+                clave_cache = f"estudiantes_{ga}_{st.session_state.user}"
+                if clave_cache in st.session_state:
+                    del st.session_state[clave_cache]
+                st.rerun()
+
         tema_input = st.text_input("Tema de la clase:", placeholder="Ej: Introducción a la Multimedia")
         tema = tema_input.strip() 
 
-        # Cargar estudiantes normalizando el documento
+        # --- CACHÉ DINÁMICO POR GRADO SELECCIONADO ---
         clave_cache_curso = f"estudiantes_{ga}_{st.session_state.user}"
+        
+        # Si cambiamos de curso en el selectbox, se consulta Supabase para ese curso específico
         if clave_cache_curso not in st.session_state:
+            # Usamos ilike/strip implícito trayendo estudiantes del profesor y filtrando exactamente
             res_bd = supabase.table("estudiantes")\
-                .select("documento, nombre, whatsapp")\
-                .eq("grado", ga)\
+                .select("documento, nombre, whatsapp, grado")\
                 .eq("profe_id", st.session_state.user)\
-                .order("nombre")\
                 .execute().data
             
-            # Guardamos el documento original y la versión limpia para comparaciones
-            st.session_state[clave_cache_curso] = [
+            # Filtramos en Python ignorando mayúsculas/minúsculas y espacios invisibles en 'grado'
+            estudiantes_filtrados = [
                 {**e, "doc_limpio": limpiar_doc(e['documento'])} 
-                for e in res_bd
+                for e in res_bd 
+                if str(e.get('grado', '')).strip().lower() == ga.lower()
             ]
+            st.session_state[clave_cache_curso] = estudiantes_filtrados
 
         estudiantes_curso = st.session_state[clave_cache_curso]
+
+        # Alerta informativa si la lista está vacía
+        if not estudiantes_curso:
+            st.warning(f"⚠️ No se encontraron estudiantes registrados en el grado exacto '{ga}'. Verifica en la sección de estudiantes como está escrito el grado.")
 
         if tema:
             tab_qr, tab_lista = st.tabs(["📷 Escáner QR", "🔢 Número de Lista (Plan B)"])
             
             with tab_qr:
                 if not st.session_state.captura_finalizada:
-                    st.success(f"📋 **{ga} - {ma}** | Periodo: **{periodo_actual}** | Tema: *{tema}*")
+                    st.info(f"📋 **{ga} - {ma}** | Alumnos cargados en este curso: **{len(estudiantes_curso)}**")
                     
                     if st.button("⏹️ Finalizar Captura y Ver Ausentes", type="primary", use_container_width=True):
                         st.session_state.captura_finalizada = True
@@ -323,18 +336,8 @@ elif menu == "📷 Scanner QR":
                     if cod:
                         id_cl_limpio = limpiar_doc(cod)
                         
-                        # 1. Búsqueda local primaria (rápida, comparando documentos limpios)
+                        # Búsqueda en los estudiantes filtrados del curso actual
                         res = [e for e in estudiantes_curso if e['doc_limpio'] == id_cl_limpio]
-                        
-                        # 2. Búsqueda secundaria en la BD por si el caché no está actualizado
-                        if not res:
-                            res_bd_directa = supabase.table("estudiantes")\
-                                .select("documento, nombre")\
-                                .eq("grado", ga)\
-                                .eq("profe_id", st.session_state.user)\
-                                .execute().data
-                            
-                            res = [e for e in res_bd_directa if limpiar_doc(e['documento']) == id_cl_limpio]
 
                         if res:
                             doc, nom = res[0]['documento'], res[0]['nombre']
@@ -366,7 +369,7 @@ elif menu == "📷 Scanner QR":
                             else:
                                 st.toast(f"ℹ️ {nom} ya registrado hoy en P{periodo_actual}", icon="✅")
                         else:
-                            st.toast(f"⚠️ Estudiante no encontrado en {ga} (QR Leído: '{cod}')", icon="❌")
+                            st.error(f"❌ Documento '{cod}' (Limpio: '{id_cl_limpio}') NO está matriculado en el curso '{ga}'.")
                 
                 else:
                     # --- SECCIÓN DE AUSENTES ---
