@@ -292,7 +292,11 @@ elif menu == "📷 Scanner QR":
                     if cod:
                         id_cl = "".join(filter(str.isalnum, str(cod))).strip()
                         
-                        res = supabase.table("estudiantes").select("documento, nombre, grado").ilike("documento", f"%{id_cl}%").eq("profe_id", st.session_state.user).execute().data
+                        # 🔒 FILTRO ESTRICTO: Solo busca el documento DENTRO DEL GRADO SELECCIONADO (ga)
+                        res = supabase.table("estudiantes").select("documento, nombre, grado")\
+                            .ilike("documento", f"%{id_cl}%")\
+                            .eq("grado", ga)\
+                            .eq("profe_id", st.session_state.user).execute().data
                         
                         if res:
                             doc, nom = str(res[0]['documento']).strip(), res[0]['nombre']
@@ -319,7 +323,7 @@ elif menu == "📷 Scanner QR":
                                     }).execute()
                                     
                                     st.toast(f"✅ Registrado (P{periodo_actual}): {nom}", icon="👤")
-                                    st.success(f"👤 **Estudiante detectado:** {nom}")
+                                    st.success(f"👤 **Estudiante detectado ({ga}):** {nom}")
                                     time.sleep(0.5)
                                 except Exception as e:
                                     st.error(f"Error al guardar asistencia: {e}")
@@ -327,8 +331,8 @@ elif menu == "📷 Scanner QR":
                                 st.toast(f"ℹ️ {nom} ya registrado hoy en P{periodo_actual}", icon="✅")
                                 st.warning(f"El estudiante **{nom}** ya fue registrado previamente hoy.")
                         else:
-                            st.toast(f"⚠️ Estudiante no encontrado: {id_cl}", icon="❌")
-                            st.error(f"No se encontró un estudiante registrado con el documento: {id_cl}")
+                            st.toast(f"⚠️ Estudiante no encontrado en {ga}: {id_cl}", icon="❌")
+                            st.error(f"El documento **{id_cl}** no pertenece al grado **{ga}**.")
                 
                 else:
                     if st.button("🔄 Volver a escanear / Limpiar", use_container_width=True):
@@ -343,20 +347,21 @@ elif menu == "📷 Scanner QR":
                     
                     saludo = "*Buenos días*" if ahora_col.hour < 12 else ("*Buenas tardes*" if ahora_col.hour < 18 else "*Buenas noches*")
                     
-                    # 1. Obtener todos los estudiantes asignados a este profesor y filtrar el curso
-                    todos_est = supabase.table("estudiantes").select("documento, nombre, whatsapp, grado").eq("profe_id", st.session_state.user).execute().data
-                    estudiantes_curso = [e for e in todos_est if str(e.get('grado', '')).strip() == str(ga).strip()]
+                    # 1. Obtener los estudiantes pertenecientes al grado en consulta
+                    estudiantes_curso = supabase.table("estudiantes").select("documento, nombre, whatsapp, grado")\
+                        .eq("grado", ga)\
+                        .eq("profe_id", st.session_state.user).execute().data
                     
-                    # 2. Consultar asistencias de hoy sin restringir por profe_id por si hay inconsistencia en la sesión
+                    # 2. Asistencias de hoy en esta materia, grado y periodo
                     asistieron = supabase.table("asistencia").select("estudiante_id")\
-                        .eq("fecha", hoy_col)\
+                        .eq("grado", ga)\
                         .eq("materia", ma)\
+                        .eq("fecha", hoy_col)\
                         .eq("periodo", periodo_actual).execute().data
                     
-                    # Normalización estricta a texto (string) de las IDs de quienes asistieron
                     ids_asistieron = set(str(a['estudiante_id']).strip() for a in asistieron if a.get('estudiante_id') is not None)
                     
-                    # 3. Filtrar ausentes garantizando que ambos lados sean tratados como texto libre de espacios
+                    # 3. Filtrar ausentes
                     ausentes = [e for e in estudiantes_curso if str(e['documento']).strip() not in ids_asistieron]
                     
                     if ausentes:
@@ -387,8 +392,10 @@ elif menu == "📷 Scanner QR":
             with tab_lista:
                 st.info(f"Registro Manual para {ga} - {ma} | Periodo: {periodo_actual}")
                 
-                estudiantes = supabase.table("estudiantes").select("documento, nombre, grado").eq("profe_id", st.session_state.user).order("nombre").execute().data
-                estudiantes_curso = [e for e in estudiantes if str(e.get('grado', '')).strip() == str(ga).strip()]
+                estudiantes_curso = supabase.table("estudiantes").select("documento, nombre, grado")\
+                    .eq("grado", ga)\
+                    .eq("profe_id", st.session_state.user)\
+                    .order("nombre").execute().data
                 
                 if estudiantes_curso:
                     num_input = st.number_input("Número de lista:", min_value=1, max_value=len(estudiantes_curso), step=1, key=f"num_man_{ga}")
@@ -421,7 +428,7 @@ elif menu == "📷 Scanner QR":
                         else:
                             st.warning(f"El estudiante {nom_m} ya cuenta con registro de asistencia en este periodo.")
                 else:
-                    st.warning("No se encontraron estudiantes registrados para este curso.")
+                    st.warning(f"No se encontraron estudiantes registrados para el grado {ga}.")
     else:
         st.error("No tienes cursos asignados. Por favor, crea un curso primero en la configuración.")
 # --- 4. SECCIÓN DE REPORTES (PDF DETALLADO POR PERIODO - FORMATO INSTITUCIONAL) ---
