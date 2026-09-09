@@ -252,6 +252,9 @@ elif menu == "👤 Estudiantes":
 # ==============================================================================
 elif menu == "📷 Scanner QR":
     import time
+    import datetime as dt
+    import urllib.parse
+    
     st.subheader("Captura de Asistencia por Periodo")
     
     if 'captura_finalizada' not in st.session_state:
@@ -263,9 +266,9 @@ elif menu == "📷 Scanner QR":
         col_c1, col_c2 = st.columns([2, 1])
         
         with col_c1:
-            opciones_cursos = sorted([f"{r['grado']} | {r['materia']}" for r in cursos])
+            opciones_cursos = sorted(list(set([f"{str(r['grado']).strip()} | {str(r['materia']).strip()}" for r in cursos])))
             sel_as = st.selectbox("Seleccione el Curso:", opciones_cursos, key="sel_curso_scan")
-            ga, ma = sel_as.split(" | ")
+            ga, ma = [item.strip() for item in sel_as.split(" | ")]
         
         with col_c2:
             periodo_actual = st.number_input("Periodo Actual:", min_value=1, max_value=4, value=1, step=1, key="num_periodo")
@@ -284,21 +287,25 @@ elif menu == "📷 Scanner QR":
                         st.session_state.captura_finalizada = True
                         st.rerun()
                     
-                    cod = qrcode_scanner(key=f"scanner_{ga}_{periodo_actual}") 
+                    cod = qrcode_scanner(key=f"scanner_{ga}_{ma}_{periodo_actual}".replace(" ", "_")) 
                     
                     if cod:
-                        id_cl = str(cod).strip()
-                        res = supabase.table("estudiantes").select("documento, nombre").eq("documento", id_cl).eq("grado", ga).eq("profe_id", st.session_state.user).execute().data
+                        id_cl = str(cod).strip().replace('\n', '').replace('\r', '')
+                        
+                        # Busca al estudiante por documento asignado al docente
+                        res = supabase.table("estudiantes").select("documento, nombre, grado").eq("documento", id_cl).eq("profe_id", st.session_state.user).execute().data
                         
                         if res:
                             doc, nom = res[0]['documento'], res[0]['nombre']
+                            grado_bd = str(res[0].get('grado', '')).strip()
+                            
                             ahora_co = dt.datetime.now() - dt.timedelta(hours=5)
                             hoy = ahora_co.strftime("%Y-%m-%d")
                             
                             check = supabase.table("asistencia").select("id")\
                                 .eq("estudiante_id", doc)\
                                 .eq("fecha", hoy)\
-                                .eq("tema", tema)\
+                                .eq("materia", ma)\
                                 .eq("periodo", periodo_actual).execute().data
                             
                             if not check:
@@ -313,14 +320,19 @@ elif menu == "📷 Scanner QR":
                                         "periodo": periodo_actual, 
                                         "profe_id": st.session_state.user
                                     }).execute()
-                                    st.toast(f"✅ Registrado P{periodo_actual}: {nom}", icon="👤")
+                                    st.toast(f"✅ Registrado P{periodo_actual} ({ga}): {nom}", icon="👤")
+                                    
+                                    # Corrige automáticamente el grado en la base de datos si no coincidía (ej. 805 por 605/705)
+                                    if grado_bd != ga:
+                                        supabase.table("estudiantes").update({"grado": ga}).eq("documento", doc).eq("profe_id", st.session_state.user).execute()
+                                    
                                     time.sleep(0.5) 
                                 except Exception as e:
                                     st.error(f"Error al registrar: {e}")
                             else:
                                 st.toast(f"ℹ️ {nom} ya registrado hoy en P{periodo_actual}", icon="✅")
                         else:
-                            st.toast(f"⚠️ Estudiante no encontrado en {ga}: {id_cl}", icon="❌")
+                            st.toast(f"⚠️ Estudiante no encontrado con documento: {id_cl}", icon="❌")
                 
                 else:
                     if st.button("🔄 Volver a escanear / Limpiar", use_container_width=True):
@@ -333,16 +345,19 @@ elif menu == "📷 Scanner QR":
                     hoy_col = ahora_col.strftime("%Y-%m-%d")
                     hora_msj = ahora_col.strftime("%I:%M %p")
                     
-                    if ahora_col.hour < 12: saludo_bold = "*Buenos días*"
-                    elif 12 <= ahora_col.hour < 18: saludo_bold = "*Buenas tardes*"
-                    else: saludo_bold = "*Buenas noches*"
+                    if ahora_col.hour < 12: 
+                        saludo_bold = "*Buenos días*"
+                    elif 12 <= ahora_col.hour < 18: 
+                        saludo_bold = "*Buenas tardes*"
+                    else: 
+                        saludo_bold = "*Buenas noches*"
 
                     todos = supabase.table("estudiantes").select("documento, nombre, whatsapp").eq("grado", ga).eq("profe_id", st.session_state.user).execute().data
                     
                     asistieron = supabase.table("asistencia").select("estudiante_id")\
                         .eq("grado", ga)\
+                        .eq("materia", ma)\
                         .eq("fecha", hoy_col)\
-                        .eq("tema", tema)\
                         .eq("periodo", periodo_actual)\
                         .eq("profe_id", st.session_state.user).execute().data
                     
@@ -357,7 +372,7 @@ elif menu == "📷 Scanner QR":
                             cuerpo_msj = (
                                 f"{saludo_bold}, señor(a) padre de familia o acudiente. La Institución Educativa San "
                                 f"Antonio de Padua le informa que el estudiante *{aus['nombre']}* no se "
-                                f"presentó el día de hoy a la clase de *{ma}*.\n\n"
+                                f"presentó el día de hoy a la clase de *{ma}* ({ga}).\n\n"
                                 f"*Hora de reporte:* {hora_msj}\n"
                                 f"*Tema tratado:* {tema}.\n\n"
                                 f"Institucionalmente,\n\n"
@@ -366,7 +381,7 @@ elif menu == "📷 Scanner QR":
                             )
                             
                             msg_encoded = urllib.parse.quote(cuerpo_msj)
-                            link_wa = f"https://wa.me/57{aus['whatsapp']}?text={msg_encoded}"
+                            link_wa = f"https://wa.me/57{str(aus['whatsapp']).strip()}?text={msg_encoded}"
                             col_b.markdown(f"[📲 Notificar]({link_wa})")
                     else:
                         st.success("¡Asistencia completa!")
@@ -376,7 +391,7 @@ elif menu == "📷 Scanner QR":
                 est_lista = supabase.table("estudiantes").select("documento, nombre").eq("grado", ga).eq("profe_id", st.session_state.user).order("nombre").execute().data
                 
                 if est_lista:
-                    num_input = st.number_input("Número de lista:", min_value=1, max_value=len(est_lista), step=1, key="num_manual")
+                    num_input = st.number_input("Número de lista:", min_value=1, max_value=len(est_lista), step=1, key=f"num_manual_{ga}")
                     
                     if st.button("✅ Registrar por Número", use_container_width=True):
                         est_sel = est_lista[num_input - 1]
@@ -387,17 +402,25 @@ elif menu == "📷 Scanner QR":
                         check_m = supabase.table("asistencia").select("id")\
                             .eq("estudiante_id", doc_m)\
                             .eq("fecha", hoy_m)\
-                            .eq("tema", tema)\
+                            .eq("materia", ma)\
                             .eq("periodo", periodo_actual).execute().data
                         
                         if not check_m:
                             supabase.table("asistencia").insert({
-                                "estudiante_id": doc_m, "fecha": hoy_m, "hora": ahora_m.strftime("%H:%M:%S"), 
-                                "grado": ga, "materia": ma, "tema": tema, "periodo": periodo_actual, "profe_id": st.session_state.user
+                                "estudiante_id": doc_m, 
+                                "fecha": hoy_m, 
+                                "hora": ahora_m.strftime("%H:%M:%S"), 
+                                "grado": ga, 
+                                "materia": ma, 
+                                "tema": tema, 
+                                "periodo": periodo_actual, 
+                                "profe_id": st.session_state.user
                             }).execute()
                             st.success(f"Asistencia marcada (P{periodo_actual}): {nom_m}")
                         else:
                             st.warning(f"{nom_m} ya está registrado hoy en P{periodo_actual}.")
+                else:
+                    st.warning(f"No hay estudiantes registrados en el grado {ga}.")
     else:
         st.error("No tienes cursos creados. Ve a la sección de Configuración.")
 # --- 4. SECCIÓN DE REPORTES (PDF DETALLADO POR PERIODO - FORMATO INSTITUCIONAL) ---
