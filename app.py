@@ -292,12 +292,10 @@ elif menu == "📷 Scanner QR":
                     if cod:
                         id_cl = str(cod).strip().replace('\n', '').replace('\r', '')
                         
-                        # Busca al estudiante por documento asignado al docente
                         res = supabase.table("estudiantes").select("documento, nombre, grado").eq("documento", id_cl).eq("profe_id", st.session_state.user).execute().data
                         
                         if res:
-                            doc, nom = res[0]['documento'], res[0]['nombre']
-                            grado_bd = str(res[0].get('grado', '')).strip()
+                            doc, nom = str(res[0]['documento']).strip(), res[0]['nombre']
                             
                             ahora_co = dt.datetime.now() - dt.timedelta(hours=5)
                             hoy = ahora_co.strftime("%Y-%m-%d")
@@ -321,11 +319,6 @@ elif menu == "📷 Scanner QR":
                                         "profe_id": st.session_state.user
                                     }).execute()
                                     st.toast(f"✅ Registrado P{periodo_actual} ({ga}): {nom}", icon="👤")
-                                    
-                                    # Corrige automáticamente el grado en la base de datos si no coincidía (ej. 805 por 605/705)
-                                    if grado_bd != ga:
-                                        supabase.table("estudiantes").update({"grado": ga}).eq("documento", doc).eq("profe_id", st.session_state.user).execute()
-                                    
                                     time.sleep(0.5) 
                                 except Exception as e:
                                     st.error(f"Error al registrar: {e}")
@@ -339,7 +332,7 @@ elif menu == "📷 Scanner QR":
                         st.session_state.captura_finalizada = False
                         st.rerun()
 
-                    st.warning(f"⚠️ Estudiantes Ausentes hoy en {ga} (Periodo {periodo_actual}):")
+                    st.warning(f"⚠️ Estudiantes Ausentes hoy en Grado {ga} ({ma} - Periodo {periodo_actual}):")
                     
                     ahora_col = dt.datetime.now() - dt.timedelta(hours=5)
                     hoy_col = ahora_col.strftime("%Y-%m-%d")
@@ -352,8 +345,10 @@ elif menu == "📷 Scanner QR":
                     else: 
                         saludo_bold = "*Buenas noches*"
 
+                    # Obtiene todos los estudiantes matriculados en este grado
                     todos = supabase.table("estudiantes").select("documento, nombre, whatsapp").eq("grado", ga).eq("profe_id", st.session_state.user).execute().data
                     
+                    # Obtiene todos los registros de asistencia tomados HOY para este grado, materia y periodo
                     asistieron = supabase.table("asistencia").select("estudiante_id")\
                         .eq("grado", ga)\
                         .eq("materia", ma)\
@@ -361,13 +356,17 @@ elif menu == "📷 Scanner QR":
                         .eq("periodo", periodo_actual)\
                         .eq("profe_id", st.session_state.user).execute().data
                     
-                    ids_asistieron = [str(a['estudiante_id']).strip() for a in asistieron]
+                    # Extrae la lista de IDs que sí asistieron limpiando posibles espacios
+                    ids_asistieron = set([str(a['estudiante_id']).strip() for a in asistieron if a.get('estudiante_id')])
+                    
+                    # Filtra los estudiantes ausentes
                     ausentes = [e for e in todos if str(e['documento']).strip() not in ids_asistieron]
                     
                     if ausentes:
+                        st.write(f"Total ausentes: **{len(ausentes)}**")
                         for aus in ausentes:
                             col_a, col_b = st.columns([3, 1])
-                            col_a.write(f"❌ {aus['nombre']}")
+                            col_a.write(f"❌ **{aus['nombre']}**")
                             
                             cuerpo_msj = (
                                 f"{saludo_bold}, señor(a) padre de familia o acudiente. La Institución Educativa San "
@@ -381,10 +380,11 @@ elif menu == "📷 Scanner QR":
                             )
                             
                             msg_encoded = urllib.parse.quote(cuerpo_msj)
-                            link_wa = f"https://wa.me/57{str(aus['whatsapp']).strip()}?text={msg_encoded}"
+                            num_wa = str(aus.get('whatsapp', '')).strip()
+                            link_wa = f"https://wa.me/57{num_wa}?text={msg_encoded}"
                             col_b.markdown(f"[📲 Notificar]({link_wa})")
                     else:
-                        st.success("¡Asistencia completa!")
+                        st.success("🎉 ¡Asistencia completa! No hay estudiantes ausentes registrados hoy.")
 
             with tab_lista:
                 st.info(f"Registro Manual para {ga} - {ma} | Periodo: {periodo_actual}")
@@ -395,7 +395,7 @@ elif menu == "📷 Scanner QR":
                     
                     if st.button("✅ Registrar por Número", use_container_width=True):
                         est_sel = est_lista[num_input - 1]
-                        doc_m, nom_m = est_sel['documento'], est_sel['nombre']
+                        doc_m, nom_m = str(est_sel['documento']).strip(), est_sel['nombre']
                         ahora_m = dt.datetime.now() - dt.timedelta(hours=5)
                         hoy_m = ahora_m.strftime("%Y-%m-%d")
                         
