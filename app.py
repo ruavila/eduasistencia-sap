@@ -179,17 +179,18 @@ elif menu == "👤 Estudiantes":
             for index, r in df.iterrows():
                 # 1. Extracción limpia de ID / Documento
                 e_id_raw = str(r.get('estudiante_id', r.get('documento', r.get('id', '')))).split('.')[0].strip()
-    
-                # Si el ID viene vacío o nulo, se genera un código único e irrepetible (UUID)
+                
+                # Asignación de UUID si el documento está vacío
                 if not e_id_raw or e_id_raw.lower() in ['nan', 'none', '']:
                     e_id = f"EST-{uuid.uuid4().hex[:8].upper()}"
-            else:
+                else:
                     e_id = e_id_raw
                 
+                # 2. Extracción de Nombre y WhatsApp (Línea corregida)
                 e_nm = str(r.get('nombre', '')).upper().strip()
                 e_ws = "".join(filter(str.isdigit, str(r.get('whatsapp', '')))).split('.')[0]
                 
-                # 2. Registro / Actualización en Supabase
+                # 3. Registro / Actualización en Supabase
                 supabase.table("estudiantes").upsert({
                     "documento": e_id, 
                     "nombre": e_nm, 
