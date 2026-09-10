@@ -248,6 +248,7 @@ elif menu == "👤 Estudiantes":
             st.download_button("📥 Descargar Carnets", pdf.getvalue(), f"Carnets_{gs}.pdf")
 
 # ==============================================================================
+# ==============================================================================
 # --- 3. SCANNER QR Y LISTA MANUAL ---
 # ==============================================================================
 elif menu == "📷 Scanner QR":
@@ -290,49 +291,62 @@ elif menu == "📷 Scanner QR":
                     cod = qrcode_scanner(key=f"sc_{ga}_{ma}_{periodo_actual}".replace(" ", "_"))
                     
                     if cod:
-                        id_cl = "".join(filter(str.isalnum, str(cod))).strip()
+                        # Limpieza del código leído del QR
+                        id_cl = str(cod).strip()
                         
-                        # 🔒 FILTRO ESTRICTO: Solo busca el documento DENTRO DEL GRADO SELECCIONADO (ga)
+                        # 🔒 SOLUCIÓN: Búsqueda exacta (.eq) en lugar de ilike parcial (%id%)
                         res = supabase.table("estudiantes").select("documento, nombre, grado")\
-                            .ilike("documento", f"%{id_cl}%")\
-                            .eq("grado", ga)\
+                            .eq("documento", id_cl)\
                             .eq("profe_id", st.session_state.user).execute().data
                         
                         if res:
-                            doc, nom = str(res[0]['documento']).strip(), res[0]['nombre']
-                            ahora_co = dt.datetime.now() - dt.timedelta(hours=5)
-                            hoy = ahora_co.strftime("%Y-%m-%d")
+                            # Verificar si el estudiante pertenece estrictamente al grado activo
+                            estudiante_encontrado = None
+                            for est in res:
+                                if str(est.get('grado', '')).strip() == ga:
+                                    estudiante_encontrado = est
+                                    break
                             
-                            check = supabase.table("asistencia").select("id")\
-                                .eq("estudiante_id", doc)\
-                                .eq("fecha", hoy)\
-                                .eq("materia", ma)\
-                                .eq("periodo", periodo_actual).execute().data
-                            
-                            if not check:
-                                try:
-                                    supabase.table("asistencia").insert({
-                                        "estudiante_id": doc, 
-                                        "fecha": hoy, 
-                                        "hora": ahora_co.strftime("%H:%M:%S"), 
-                                        "grado": ga, 
-                                        "materia": ma, 
-                                        "tema": tema, 
-                                        "periodo": periodo_actual,
-                                        "profe_id": st.session_state.user
-                                    }).execute()
-                                    
-                                    st.toast(f"✅ Registrado (P{periodo_actual}): {nom}", icon="👤")
-                                    st.success(f"👤 **Estudiante detectado ({ga}):** {nom}")
-                                    time.sleep(0.5)
-                                except Exception as e:
-                                    st.error(f"Error al guardar asistencia: {e}")
+                            if estudiante_encontrado:
+                                doc = str(estudiante_encontrado['documento']).strip()
+                                nom = estudiante_encontrado['nombre']
+                                ahora_co = dt.datetime.now() - dt.timedelta(hours=5)
+                                hoy = ahora_co.strftime("%Y-%m-%d")
+                                
+                                check = supabase.table("asistencia").select("id")\
+                                    .eq("estudiante_id", doc)\
+                                    .eq("fecha", hoy)\
+                                    .eq("materia", ma)\
+                                    .eq("periodo", periodo_actual).execute().data
+                                
+                                if not check:
+                                    try:
+                                        supabase.table("asistencia").insert({
+                                            "estudiante_id": doc, 
+                                            "fecha": hoy, 
+                                            "hora": ahora_co.strftime("%H:%M:%S"), 
+                                            "grado": ga, 
+                                            "materia": ma, 
+                                            "tema": tema, 
+                                            "periodo": periodo_actual,
+                                            "profe_id": st.session_state.user
+                                        }).execute()
+                                        
+                                        st.toast(f"✅ Registrado (P{periodo_actual}): {nom}", icon="👤")
+                                        st.success(f"👤 **Estudiante detectado ({ga}):** {nom}")
+                                        time.sleep(0.5)
+                                    except Exception as e:
+                                        st.error(f"Error al guardar asistencia: {e}")
+                                else:
+                                    st.toast(f"ℹ️ {nom} ya registrado hoy en P{periodo_actual}", icon="✅")
+                                    st.warning(f"El estudiante **{nom}** ya fue registrado previamente hoy.")
                             else:
-                                st.toast(f"ℹ️ {nom} ya registrado hoy en P{periodo_actual}", icon="✅")
-                                st.warning(f"El estudiante **{nom}** ya fue registrado previamente hoy.")
+                                pert_grado = res[0].get('grado', 'Otro')
+                                st.toast(f"⚠️ Pertenece a {pert_grado}", icon="❌")
+                                st.error(f"El estudiante **{res[0]['nombre']}** pertenece al grado **{pert_grado}**, no a **{ga}**.")
                         else:
-                            st.toast(f"⚠️ Estudiante no encontrado en {ga}: {id_cl}", icon="❌")
-                            st.error(f"El documento **{id_cl}** no pertenece al grado **{ga}**.")
+                            st.toast(f"⚠️ Estudiante no encontrado: {id_cl}", icon="❌")
+                            st.error(f"No existe ningún estudiante registrado con el documento: {id_cl}")
                 
                 else:
                     if st.button("🔄 Volver a escanear / Limpiar", use_container_width=True):
@@ -347,12 +361,13 @@ elif menu == "📷 Scanner QR":
                     
                     saludo = "*Buenos días*" if ahora_col.hour < 12 else ("*Buenas tardes*" if ahora_col.hour < 18 else "*Buenas noches*")
                     
-                    # 1. Obtener los estudiantes pertenecientes al grado en consulta
-                    estudiantes_curso = supabase.table("estudiantes").select("documento, nombre, whatsapp, grado")\
-                        .eq("grado", ga)\
+                    # Obtener estudiantes del grado activo
+                    todos_est = supabase.table("estudiantes").select("documento, nombre, whatsapp, grado")\
                         .eq("profe_id", st.session_state.user).execute().data
                     
-                    # 2. Asistencias de hoy en esta materia, grado y periodo
+                    estudiantes_curso = [e for e in todos_est if str(e.get('grado', '')).strip() == ga]
+                    
+                    # Consultar asistencias
                     asistieron = supabase.table("asistencia").select("estudiante_id")\
                         .eq("grado", ga)\
                         .eq("materia", ma)\
@@ -361,7 +376,6 @@ elif menu == "📷 Scanner QR":
                     
                     ids_asistieron = set(str(a['estudiante_id']).strip() for a in asistieron if a.get('estudiante_id') is not None)
                     
-                    # 3. Filtrar ausentes
                     ausentes = [e for e in estudiantes_curso if str(e['documento']).strip() not in ids_asistieron]
                     
                     if ausentes:
@@ -392,10 +406,11 @@ elif menu == "📷 Scanner QR":
             with tab_lista:
                 st.info(f"Registro Manual para {ga} - {ma} | Periodo: {periodo_actual}")
                 
-                estudiantes_curso = supabase.table("estudiantes").select("documento, nombre, grado")\
-                    .eq("grado", ga)\
+                todos_est = supabase.table("estudiantes").select("documento, nombre, grado")\
                     .eq("profe_id", st.session_state.user)\
                     .order("nombre").execute().data
+                
+                estudiantes_curso = [e for e in todos_est if str(e.get('grado', '')).strip() == ga]
                 
                 if estudiantes_curso:
                     num_input = st.number_input("Número de lista:", min_value=1, max_value=len(estudiantes_curso), step=1, key=f"num_man_{ga}")
