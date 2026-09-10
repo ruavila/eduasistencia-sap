@@ -179,11 +179,11 @@ elif menu == "👤 Estudiantes":
             for index, r in df.iterrows():
                 # 1. Extracción limpia de ID / Documento
                 e_id_raw = str(r.get('estudiante_id', r.get('documento', r.get('id', '')))).split('.')[0].strip()
-                
-                # Si el id viene vacío o es nan, asignamos un ID temporal único basado en el grado e índice
+    
+                # Si el ID viene vacío o nulo, se genera un código único e irrepetible (UUID)
                 if not e_id_raw or e_id_raw.lower() in ['nan', 'none', '']:
-                    e_id = f"{gs.replace(' ', '')}_{index + 1}"
-                else:
+                    e_id = f"EST-{uuid.uuid4().hex[:8].upper()}"
+            else:
                     e_id = e_id_raw
                 
                 e_nm = str(r.get('nombre', '')).upper().strip()
