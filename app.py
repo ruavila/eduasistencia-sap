@@ -251,6 +251,7 @@ elif menu == "👤 Estudiantes":
             st.success(f"Se generaron carnets para {len(df)} estudiantes en formato Carta.")
             st.download_button("📥 Descargar Carnets", pdf.getvalue(), f"Carnets_{gs}.pdf")
 # ==============================================================================
+# ==============================================================================
 # --- 3. SCANNER QR Y LISTA MANUAL ---
 # ==============================================================================
 elif menu == "📷 Scanner QR":
@@ -260,12 +261,23 @@ elif menu == "📷 Scanner QR":
 
     st.subheader("Captura de Asistencia por Periodo")
     
+    # 1. Control de estado de la toma de asistencia
     if 'captura_finalizada' not in st.session_state:
         st.session_state.captura_finalizada = False
 
     cursos = supabase.table("cursos").select("grado, materia").eq("profe_id", st.session_state.user).execute().data
     
     if cursos:
+        # Botón para cerrar llamado a lista activo y cambiar de curso
+        col_tit, col_btn_cerrar = st.columns([3, 1])
+        with col_btn_cerrar:
+            if st.button("🔴 Cerrar Clase", use_container_width=True, help="Limpia la selección actual para iniciar llamado en otro curso"):
+                if 'captura_finalizada' in st.session_state:
+                    st.session_state.captura_finalizada = False
+                if 'sel_curso_scan' in st.session_state:
+                    del st.session_state['sel_curso_scan']
+                st.rerun()
+
         col_c1, col_c2 = st.columns([2, 1])
         
         with col_c1:
@@ -282,6 +294,7 @@ elif menu == "📷 Scanner QR":
         if tema:
             tab_qr, tab_lista = st.tabs(["📷 Escáner QR", "🔢 Número de Lista"])
             
+            # --- TAB 1: ESCÁNER QR ---
             with tab_qr:
                 if not st.session_state.captura_finalizada:
                     st.info(f"📋 **{ga} - {ma}** | Periodo: **{periodo_actual}** | Tema: *{tema}*")
@@ -295,24 +308,14 @@ elif menu == "📷 Scanner QR":
                     if cod:
                         id_cl = str(cod).strip()
                         
-                        # 1. Obtener TODOS los estudiantes del docente actual
-                        todos_los_estudiantes = supabase.table("estudiantes").select("documento, nombre, grado")\
+                        # Búsqueda directa del estudiante por documento y grado
+                        res = supabase.table("estudiantes").select("documento, nombre, grado")\
+                            .eq("documento", id_cl)\
+                            .eq("grado", ga)\
                             .eq("profe_id", st.session_state.user).execute().data
                         
-                        # 2. FILTRADO STRICTO: Filtrar primero solo los estudiantes que pertenecen al grado seleccionado (ga)
-                        estudiantes_del_grado = [
-                            e for e in todos_los_estudiantes 
-                            if str(e.get('grado', '')).strip().lower() == ga.lower()
-                        ]
-                        
-                        # 3. Buscar la coincidencia exacta del documento dentro del grado seleccionado
-                        estudiante_encontrado = None
-                        for est in estudiantes_del_grado:
-                            if str(est.get('documento', '')).strip() == id_cl:
-                                estudiante_encontrado = est
-                                break
-                        
-                        if estudiante_encontrado:
+                        if res:
+                            estudiante_encontrado = res[0]
                             doc = str(estudiante_encontrado['documento']).strip()
                             nom = estudiante_encontrado['nombre']
                             ahora_co = dt.datetime.now() - dt.timedelta(hours=5)
@@ -346,23 +349,11 @@ elif menu == "📷 Scanner QR":
                                 st.toast(f"ℹ️ {nom} ya registrado hoy en P{periodo_actual}", icon="✅")
                                 st.warning(f"El estudiante **{nom}** ya fue registrado previamente hoy.")
                         else:
-                            # Si el código escaneado pertenece a un estudiante de otro grado, se notifica explícitamente
-                            coincidencia_otro_grado = [
-                                e for e in todos_los_estudiantes 
-                                if str(e.get('documento', '')).strip() == id_cl
-                            ]
-                            
-                            if coincidencia_otro_grado:
-                                grado_real = coincidencia_otro_grado[0].get('grado', 'Desconocido')
-                                nombre_real = coincidencia_otro_grado[0].get('nombre', '')
-                                st.toast(f"⚠️ Estudiante de {grado_real}", icon="❌")
-                                st.error(f"El QR leído pertenece a **{nombre_real}** del grado **{grado_real}**, pero tienes seleccionado el grado **{ga}**.")
-                            else:
-                                st.toast(f"⚠️ Código no encontrado: {id_cl}", icon="❌")
-                                st.error(f"El código **{id_cl}** no está registrado en el grado **{ga}**.")
+                            st.toast(f"⚠️ Código {id_cl} no asignado a {ga}", icon="❌")
+                            st.error(f"El código **{id_cl}** no se encuentra registrado en el grado **{ga}**.")
                 
                 else:
-                    if st.button("🔄 Volver a escanear / Limpiar", use_container_width=True):
+                    if st.button("🔄 Volver a escanear / Reabrir Clase", use_container_width=True):
                         st.session_state.captura_finalizada = False
                         st.rerun()
 
@@ -374,7 +365,7 @@ elif menu == "📷 Scanner QR":
                     
                     saludo = "*Buenos días*" if ahora_col.hour < 12 else ("*Buenas tardes*" if ahora_col.hour < 18 else "*Buenas noches*")
                     
-                    # 1. Obtener los estudiantes pertenecientes al grado seleccionado
+                    # 1. Estudiantes matriculados en este grado
                     todos_est = supabase.table("estudiantes").select("documento, nombre, whatsapp, grado")\
                         .eq("profe_id", st.session_state.user).execute().data
                     
@@ -383,16 +374,17 @@ elif menu == "📷 Scanner QR":
                         if str(e.get('grado', '')).strip().lower() == ga.lower()
                     ]
                     
-                    # 2. Asistencias de hoy
+                    # 2. Consultar ASISTENCIAS (registradas tanto por QR como Manualmente)
                     asistieron = supabase.table("asistencia").select("estudiante_id")\
                         .eq("grado", ga)\
                         .eq("materia", ma)\
                         .eq("fecha", hoy_col)\
                         .eq("periodo", periodo_actual).execute().data
                     
+                    # Conjunto de IDs de estudiantes que YA ASISTIERON
                     ids_asistieron = set(str(a['estudiante_id']).strip() for a in asistieron if a.get('estudiante_id') is not None)
                     
-                    # 3. Filtrar ausentes
+                    # 3. Filtrar ausentes excluyendo a los registrados (QR y Manuales)
                     ausentes = [e for e in estudiantes_curso if str(e['documento']).strip() not in ids_asistieron]
                     
                     if ausentes:
@@ -420,6 +412,7 @@ elif menu == "📷 Scanner QR":
                     else:
                         st.success("🎉 ¡Asistencia completa! No se reportan ausentes hoy.")
 
+            # --- TAB 2: LISTA MANUAL ---
             with tab_lista:
                 st.info(f"Registro Manual para {ga} - {ma} | Periodo: {periodo_actual}")
                 
@@ -433,10 +426,14 @@ elif menu == "📷 Scanner QR":
                 ]
                 
                 if estudiantes_curso:
-                    num_input = st.number_input("Número de lista:", min_value=1, max_value=len(estudiantes_curso), step=1, key=f"num_man_{ga}")
+                    # Selección por nombre de estudiante directamente
+                    nombres_estudiantes = [f"{i+1}. {e['nombre']}" for i, e in enumerate(estudiantes_curso)]
+                    est_sel_nombre = st.selectbox("Seleccione el estudiante:", nombres_estudiantes, key=f"sel_man_{ga}")
                     
-                    if st.button("✅ Registrar por Número", use_container_width=True):
-                        est_sel = estudiantes_curso[num_input - 1]
+                    idx_seleccionado = nombres_estudiantes.index(est_sel_nombre)
+                    
+                    if st.button("✅ Registrar Asistencia Manual", use_container_width=True):
+                        est_sel = estudiantes_curso[idx_seleccionado]
                         doc_m, nom_m = str(est_sel['documento']).strip(), est_sel['nombre']
                         
                         ahora_m = dt.datetime.now() - dt.timedelta(hours=5)
@@ -459,9 +456,10 @@ elif menu == "📷 Scanner QR":
                                 "periodo": periodo_actual,
                                 "profe_id": st.session_state.user
                             }).execute()
-                            st.success(f"Asistencia marcada manualmente: {num_input}. {nom_m} (P{periodo_actual})")
+                            st.success(f"Asistencia marcada correctamente para: {nom_m}")
+                            st.rerun()
                         else:
-                            st.warning(f"El estudiante {nom_m} ya cuenta con registro de asistencia en este periodo.")
+                            st.warning(f"El estudiante {nom_m} ya cuenta con registro de asistencia para hoy.")
                 else:
                     st.warning(f"No se encontraron estudiantes registrados para el grado {ga}.")
     else:
