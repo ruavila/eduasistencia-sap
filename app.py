@@ -201,7 +201,7 @@ elif menu == "👤 Estudiantes":
                     "grado": gs, 
                     "materia": ms, 
                     "profe_id": st.session_state.user
-                }).execute()
+                },on_conflict="documento").execute()
                 
                 # 3. Generación de QR con Instancia Limpia por Estudiante
                 qr_engine = qrcode.QRCode(
