@@ -471,8 +471,7 @@ elif menu == "📷 Scanner QR":
                     st.warning(f"No se encontraron estudiantes registrados para el grado {ga}.")
     else:
         st.error("No tienes cursos asignados. Por favor, crea un curso primero en la configuración.")
-    else:
-        st.error("No tienes cursos asignados. Por favor, crea un curso primero en la configuración.")
+   
 
     
 # --- 4. SECCIÓN DE REPORTES (PDF DETALLADO POR PERIODO - FORMATO INSTITUCIONAL) ---
