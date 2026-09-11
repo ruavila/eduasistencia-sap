@@ -415,27 +415,27 @@ elif menu == "📷 Scanner QR":
             with tab_lista:
                 st.info(f"Registro Manual para {ga} - {ma} | Periodo: {periodo_actual}")
                 
-                # 1. Consulta de estudiantes filtrando por grado, materia y docente
+                # 1. Consulta de estudiantes filtrando directamente en Supabase por grado, materia y docente
                 todos_est = supabase.table("estudiantes").select("documento, nombre, grado, materia")\
                     .eq("profe_id", st.session_state.user)\
+                    .eq("grado", ga)\
                     .eq("materia", ma)\
                     .order("nombre").execute().data
                 
                 # 2. Desduplicación en memoria por 'documento'
                 estudiantes_unicos = {}
                 for e in todos_est:
-                    if str(e.get('grado', '')).strip().lower() == ga.lower():
-                        doc_key = str(e.get('documento', '')).strip()
-                        if doc_key not in estudiantes_unicos:
-                            estudiantes_unicos[doc_key] = e
+                    doc_key = str(e.get('documento', '')).strip()
+                    if doc_key and doc_key not in estudiantes_unicos:
+                        estudiantes_unicos[doc_key] = e
                 
-                # Lista ordenada por nombre sin nombres repetidos
+                # Lista final ordenada por nombre solo del grado activo
                 estudiantes_curso = sorted(list(estudiantes_unicos.values()), key=lambda x: x['nombre'])
                 
                 if estudiantes_curso:
-                    # Menú desplegable sin duplicados
+                    # Menú desplegable exclusivo del grado y materia seleccionados
                     nombres_estudiantes = [f"{i+1}. {e['nombre']}" for i, e in enumerate(estudiantes_curso)]
-                    est_sel_nombre = st.selectbox("Seleccione el estudiante:", nombres_estudiantes, key=f"sel_man_{ga}_{ma}")
+                    est_sel_nombre = st.selectbox("Seleccione el estudiante:", nombres_estudiantes, key=f"sel_man_{ga}_{ma}".replace(" ", "_"))
                     
                     idx_seleccionado = nombres_estudiantes.index(est_sel_nombre)
                     
@@ -468,7 +468,7 @@ elif menu == "📷 Scanner QR":
                         else:
                             st.warning(f"El estudiante {nom_m} ya cuenta con registro de asistencia para hoy.")
                 else:
-                    st.warning(f"No se encontraron estudiantes registrados para el grado {ga} en {ma}.")
+                    st.warning(f"No se encontraron estudiantes registrados para el grado {ga} en la materia {ma}.")
     else:
         st.error("No tienes cursos asignados. Por favor, crea un curso primero en la configuración.")
 # --- 4. SECCIÓN DE REPORTES (PDF DETALLADO POR PERIODO - FORMATO INSTITUCIONAL) ---
