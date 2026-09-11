@@ -252,8 +252,6 @@ elif menu == "👤 Estudiantes":
             st.download_button("📥 Descargar Carnets", pdf.getvalue(), f"Carnets_{gs}.pdf")
 # ==============================================================================
  # ==============================================================================
-# --- 3. SCANNER QR Y LISTA MANUAL ---
-# ==============================================================================
 elif menu == "📷 Scanner QR":
     import time
     import datetime as dt
@@ -308,7 +306,7 @@ elif menu == "📷 Scanner QR":
                     if cod:
                         id_cl = str(cod).strip()
                         
-                        # Búsqueda directa del estudiante por documento y grado
+                        # Búsqueda directa del estudiante por documento y grado exacto
                         res = supabase.table("estudiantes").select("documento, nombre, grado")\
                             .eq("documento", id_cl)\
                             .eq("grado", ga)\
@@ -365,26 +363,30 @@ elif menu == "📷 Scanner QR":
                     
                     saludo = "*Buenos días*" if ahora_col.hour < 12 else ("*Buenas tardes*" if ahora_col.hour < 18 else "*Buenas noches*")
                     
-                    # 1. Estudiantes matriculados en este grado
+                    # 1. Consulta FILTRADA DIRECTAMENTE en Supabase por grado exacto
                     todos_est = supabase.table("estudiantes").select("documento, nombre, whatsapp, grado")\
-                        .eq("profe_id", st.session_state.user).execute().data
+                        .eq("profe_id", st.session_state.user)\
+                        .eq("grado", ga).execute().data
                     
-                    estudiantes_curso = [
-                        e for e in todos_est 
-                        if str(e.get('grado', '')).strip().lower() == ga.lower()
-                    ]
+                    # Desduplicación por nombre
+                    estudiantes_unicos = {}
+                    for e in todos_est:
+                        nom_clean = str(e.get('nombre', '')).strip().upper()
+                        if nom_clean and nom_clean not in estudiantes_unicos:
+                            estudiantes_unicos[nom_clean] = e
                     
-                    # 2. Consultar ASISTENCIAS (registradas tanto por QR como Manualmente)
+                    estudiantes_curso = sorted(list(estudiantes_unicos.values()), key=lambda x: x['nombre'])
+                    
+                    # 2. Consultar ASISTENCIAS registradas hoy
                     asistieron = supabase.table("asistencia").select("estudiante_id")\
                         .eq("grado", ga)\
                         .eq("materia", ma)\
                         .eq("fecha", hoy_col)\
                         .eq("periodo", periodo_actual).execute().data
                     
-                    # Conjunto de IDs de estudiantes que YA ASISTIERON
                     ids_asistieron = set(str(a['estudiante_id']).strip() for a in asistieron if a.get('estudiante_id') is not None)
                     
-                    # 3. Filtrar ausentes excluyendo a los registrados (QR y Manuales)
+                    # 3. Filtrar ausentes
                     ausentes = [e for e in estudiantes_curso if str(e['documento']).strip() not in ids_asistieron]
                     
                     if ausentes:
@@ -416,28 +418,22 @@ elif menu == "📷 Scanner QR":
             with tab_lista:
                 st.info(f"Registro Manual para {ga} - {ma} | Periodo: {periodo_actual}")
                 
+                # Consulta FILTRADA DIRECTAMENTE en Supabase por grado exacto
                 todos_est = supabase.table("estudiantes").select("documento, nombre, grado")\
                     .eq("profe_id", st.session_state.user)\
+                    .eq("grado", ga)\
                     .order("nombre").execute().data
                 
-                # 1. Filtrar por el grado seleccionado
-                brutos_curso = [
-                    e for e in todos_est 
-                    if str(e.get('grado', '')).strip().lower() == ga.lower()
-                ]
-                
-                # 2. Desduplicar en memoria por NOMBRE de estudiante
+                # Desduplicación por nombre
                 estudiantes_unicos = {}
-                for e in brutos_curso:
+                for e in todos_est:
                     nom_clean = str(e.get('nombre', '')).strip().upper()
                     if nom_clean and nom_clean not in estudiantes_unicos:
                         estudiantes_unicos[nom_clean] = e
                 
-                # Lista limpia de exactamente 36 estudiantes
                 estudiantes_curso = sorted(list(estudiantes_unicos.values()), key=lambda x: x['nombre'])
                 
                 if estudiantes_curso:
-                    # Selección por nombre de estudiante directamente
                     nombres_estudiantes = [f"{i+1}. {e['nombre']}" for i, e in enumerate(estudiantes_curso)]
                     est_sel_nombre = st.selectbox("Seleccione el estudiante:", nombres_estudiantes, key=f"sel_man_{ga}_{ma}".replace(" ", "_"))
                     
@@ -473,6 +469,8 @@ elif menu == "📷 Scanner QR":
                             st.warning(f"El estudiante {nom_m} ya cuenta con registro de asistencia para hoy.")
                 else:
                     st.warning(f"No se encontraron estudiantes registrados para el grado {ga}.")
+    else:
+        st.error("No tienes cursos asignados. Por favor, crea un curso primero en la configuración.")
     else:
         st.error("No tienes cursos asignados. Por favor, crea un curso primero en la configuración.")
 
