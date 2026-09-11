@@ -416,66 +416,72 @@ elif menu == "📷 Scanner QR":
                             col_b.markdown(f"[📲 Notificar]({link_wa})")
                     else:
                         st.success("🎉 ¡Asistencia completa! No se reportan ausentes hoy.")
-
-            # --- TAB 2: LISTA MANUAL ---
+# --- TAB 2: LISTA MANUAL ---
             with tab_lista:
                 st.info(f"Registro Manual para {ga} - {ma} | Periodo: {periodo_actual}")
                 
-                # 1. Consulta de estudiantes filtrando directamente en Supabase por grado, materia y docente
                 todos_est = supabase.table("estudiantes").select("documento, nombre, grado, materia")\
                     .eq("profe_id", st.session_state.user)\
                     .eq("grado", ga)\
                     .eq("materia", ma)\
                     .order("nombre").execute().data
                 
-                # 2. Desduplicación en memoria por 'documento'
-                estudiantes_unicos = {}
+                # 🔒 DESDUPLICACIÓN POR NOMBRE: Si el estudiante está guardado 2 veces en Supabase, guarda todos sus IDs asociados
+                estudiantes_por_nombre = {}
                 for e in todos_est:
-                    doc_key = str(e.get('documento', '')).strip()
-                    if doc_key and doc_key not in estudiantes_unicos:
-                        estudiantes_unicos[doc_key] = e
-                
-                # Lista final ordenada por nombre solo del grado activo
-                estudiantes_curso = sorted(list(estudiantes_unicos.values()), key=lambda x: x['nombre'])
-                
-                if estudiantes_curso:
-                    # Menú desplegable exclusivo del grado y materia seleccionados
-                    nombres_estudiantes = [f"{i+1}. {e['nombre']}" for i, e in enumerate(estudiantes_curso)]
-                    est_sel_nombre = st.selectbox("Seleccione el estudiante:", nombres_estudiantes, key=f"sel_man_{ga}_{ma}".replace(" ", "_"))
+                    nombre_clean = str(e.get('nombre', '')).upper().strip()
+                    doc_id = str(e.get('documento', '')).strip()
                     
-                    idx_seleccionado = nombres_estudiantes.index(est_sel_nombre)
+                    if nombre_clean and doc_id:
+                        if nombre_clean not in estudiantes_por_nombre:
+                            estudiantes_por_nombre[nombre_clean] = {
+                                "nombre": nombre_clean,
+                                "docs": [doc_id],
+                                "whatsapp": e.get('whatsapp', '')
+                            }
+                        else:
+                            if doc_id not in estudiantes_por_nombre[nombre_clean]["docs"]:
+                                estudiantes_por_nombre[nombre_clean]["docs"].append(doc_id)
+                
+                nombres_ordenados = sorted(list(estudiantes_por_nombre.keys()))
+                
+                if nombres_ordenados:
+                    nombres_opciones = [f"{i+1}. {nom}" for i, nom in enumerate(nombres_ordenados)]
+                    est_sel_nombre = st.selectbox("Seleccione el estudiante:", nombres_opciones, key=f"sel_man_{ga}_{ma}".replace(" ", "_"))
+                    
+                    idx_seleccionado = nombres_opciones.index(est_sel_nombre)
+                    nombre_elegido = nombres_ordenados[idx_seleccionado]
+                    datos_est = estudiantes_por_nombre[nombre_elegido]
                     
                     if st.button("✅ Registrar Asistencia Manual", use_container_width=True):
-                        est_sel = estudiantes_curso[idx_seleccionado]
-                        doc_m, nom_m = str(est_sel['documento']).strip(), est_sel['nombre']
-                        
                         ahora_m = dt.datetime.now() - dt.timedelta(hours=5)
                         hoy_m = ahora_m.strftime("%Y-%m-%d")
                         
-                        check_m = supabase.table("asistencia").select("id")\
-                            .eq("estudiante_id", doc_m)\
-                            .eq("fecha", hoy_m)\
-                            .eq("materia", ma)\
-                            .eq("periodo", periodo_actual).execute().data
+                        # Marca la asistencia para TODOS los IDs asociados a ese nombre para no dejar duplicados pendientes
+                        for doc_m in datos_est["docs"]:
+                            check_m = supabase.table("asistencia").select("id")\
+                                .eq("estudiante_id", doc_m)\
+                                .eq("fecha", hoy_m)\
+                                .eq("materia", ma)\
+                                .eq("periodo", periodo_actual).execute().data
+                            
+                            if not check_m:
+                                supabase.table("asistencia").insert({
+                                    "estudiante_id": doc_m, 
+                                    "fecha": hoy_m, 
+                                    "hora": ahora_m.strftime("%H:%M:%S"), 
+                                    "grado": ga, 
+                                    "materia": ma, 
+                                    "tema": tema, 
+                                    "periodo": periodo_actual,
+                                    "profe_id": st.session_state.user
+                                }).execute()
                         
-                        if not check_m:
-                            supabase.table("asistencia").insert({
-                                "estudiante_id": doc_m, 
-                                "fecha": hoy_m, 
-                                "hora": ahora_m.strftime("%H:%M:%S"), 
-                                "grado": ga, 
-                                "materia": ma, 
-                                "tema": tema, 
-                                "periodo": periodo_actual,
-                                "profe_id": st.session_state.user
-                            }).execute()
-                            st.success(f"Asistencia marcada correctamente para: {nom_m}")
-                            st.rerun()
-                        else:
-                            st.warning(f"El estudiante {nom_m} ya cuenta con registro de asistencia para hoy.")
+                        st.success(f"Asistencia marcada correctamente para: {nombre_elegido}")
+                        st.rerun()
                 else:
-                    st.warning(f"No se encontraron estudiantes registrados para el grado {ga} en la materia {ma}.")
-    else:
+                    st.warning(f"No se encontraron estudiantes registrados para el grado {ga} en {ma}.")
+                else:
         st.error("No tienes cursos asignados. Por favor, crea un curso primero en la configuración.")
 # --- 4. SECCIÓN DE REPORTES (PDF DETALLADO POR PERIODO - FORMATO INSTITUCIONAL) ---
 elif menu == "📊 Reportes":
