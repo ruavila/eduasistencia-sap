@@ -417,10 +417,10 @@ elif menu == "📷 Scanner QR":
                     else:
                         st.success("🎉 ¡Asistencia completa! No se reportan ausentes hoy.")
                 # --- TAB 2: LISTA MANUAL ---
-                    with tab_lista:
-                        st.info(f"Registro Manual para {ga} - {ma} | Periodo: {periodo_actual}")
+            with tab_lista:
+                st.info(f"Registro Manual para {ga} - {ma} | Periodo: {periodo_actual}")
                 
-                    todos_est = supabase.table("estudiantes").select("documento, nombre, grado, materia")\
+                todos_est = supabase.table("estudiantes").select("documento, nombre, grado, materia")\
                     .eq("profe_id", st.session_state.user)\
                     .eq("grado", ga)\
                     .eq("materia", ma)\
