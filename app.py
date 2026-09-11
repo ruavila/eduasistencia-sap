@@ -154,6 +154,8 @@ elif menu == "👤 Estudiantes":
     
     from reportlab.lib.pagesizes import letter 
     import tempfile
+    import uuid
+    import os
 
     cursos = supabase.table("cursos").select("grado, materia").eq("profe_id", st.session_state.user).execute().data
     if cursos:
@@ -177,20 +179,21 @@ elif menu == "👤 Estudiantes":
             x, y, col = 1.5*cm, alto_pg - 5*cm, 0
             
             for index, r in df.iterrows():
-                # 1. Extracción limpia de ID / Documento
-                e_id_raw = str(r.get('estudiante_id', r.get('documento', r.get('id', '')))).split('.')[0].strip()
+                # 1. Extracción de ID base del Excel
+                id_base = str(r.get('estudiante_id', r.get('documento', r.get('id', '')))).split('.')[0].strip()
                 
-                # Asignación de UUID si el documento está vacío
-                if not e_id_raw or e_id_raw.lower() in ['nan', 'none', '']:
+                # Asignación de ID único anteponiendo el grado si existe o generando UUID si está vacío
+                if not id_base or id_base.lower() in ['nan', 'none', '']:
                     e_id = f"EST-{uuid.uuid4().hex[:8].upper()}"
                 else:
-                    e_id = e_id_raw
+                    # 🔒 COMBINACIÓN ÚNICA: Antepone el grado (Ejemplo: "605-1", "805-1") para evitar duplicados entre cursos
+                    e_id = f"{gs.replace(' ', '')}-{id_base}"
                 
-                # 2. Extracción de Nombre y WhatsApp (Línea corregida)
+                # 2. Extracción de Nombre y WhatsApp
                 e_nm = str(r.get('nombre', '')).upper().strip()
                 e_ws = "".join(filter(str.isdigit, str(r.get('whatsapp', '')))).split('.')[0]
                 
-                # 3. Registro / Actualización en Supabase
+                # 3. Registro / Actualización en Supabase con el ID único por grado
                 supabase.table("estudiantes").upsert({
                     "documento": e_id, 
                     "nombre": e_nm, 
@@ -247,8 +250,6 @@ elif menu == "👤 Estudiantes":
             canv.save()
             st.success(f"Se generaron carnets para {len(df)} estudiantes en formato Carta.")
             st.download_button("📥 Descargar Carnets", pdf.getvalue(), f"Carnets_{gs}.pdf")
-
-# ==============================================================================
 # ==============================================================================
 # --- 3. SCANNER QR Y LISTA MANUAL ---
 # ==============================================================================
