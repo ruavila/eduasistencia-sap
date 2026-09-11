@@ -419,36 +419,35 @@ elif menu == "📷 Scanner QR":
             with tab_lista:
                 st.info(f"Registro Manual para {ga} - {ma} | Periodo: {periodo_actual}")
                 
-                # 1. Traer ÚNICAMENTE los estudiantes que pertenecen al grado 'ga' seleccionado
-                res_est = supabase.table("estudiantes").select("documento, nombre, grado")\
-                    .eq("profe_id", st.session_state.user)\
-                    .eq("grado", ga)\
-                    .order("nombre").execute().data
+                # 1. Traer todos los estudiantes del profesor
+                todos_est = supabase.table("estudiantes").select("documento, nombre, grado")\
+                    .eq("profe_id", st.session_state.user).execute().data
                 
-                # Fallback de seguridad: si en la BD se guardó como "Grado 605" o "605"
-                if not res_est:
-                    num_g = "".join(filter(str.isdigit, str(ga)))
-                    todos_est = supabase.table("estudiantes").select("documento, nombre, grado")\
-                        .eq("profe_id", st.session_state.user).execute().data
-                    res_est = [
-                        e for e in todos_est 
-                        if "".join(filter(str.isdigit, str(e.get('grado', '')))) == num_g
-                    ]
-
-                # 2. Desduplicación estricta por NOMBRE en memoria
-                estudiantes_unicos = {}
-                for e in res_est:
-                    nom_clean = str(e.get('nombre', '')).strip().upper()
-                    if nom_clean and nom_clean not in estudiantes_unicos:
-                        estudiantes_unicos[nom_clean] = e
+                # 2. Filtro estricto: Comparar texto exacto eliminando espacios en bordes
+                # Si ga es "Grado 605" o "605", busca coincidencia exacta con lo registrado
+                ga_limpio = str(ga).strip().lower()
                 
-                # Lista ordenada final
-                estudiantes_curso = sorted(list(estudiantes_unicos.values()), key=lambda x: x['nombre'])
+                estudiantes_curso = []
+                vistos = set()
+                
+                for e in sorted(todos_est, key=lambda x: x['nombre']):
+                    g_est = str(e.get('grado', '')).strip().lower()
+                    nom_est = str(e.get('nombre', '')).strip().upper()
+                    
+                    # Condición de pertenencia única al grado seleccionado
+                    if (g_est == ga_limpio or ga_limpio in g_est) and nom_est not in vistos:
+                        # Descarte explícito: Si el grado seleccionado es 605, bloquea cualquier registro que tenga '701'
+                        if "605" in ga_limpio and "701" in g_est:
+                            continue
+                        
+                        vistos.add(nom_est)
+                        estudiantes_curso.append(e)
                 
                 if estudiantes_curso:
                     nombres_estudiantes = [f"{i+1}. {e['nombre']}" for i, e in enumerate(estudiantes_curso)]
+                    
                     est_sel_nombre = st.selectbox(
-                        f"Seleccione el estudiante ({len(estudiantes_curso)} asignados a {ga}):", 
+                        "Seleccione el estudiante:", 
                         nombres_estudiantes, 
                         key=f"sel_man_{ga}_{ma}".replace(" ", "_")
                     )
