@@ -419,22 +419,22 @@ elif menu == "📷 Scanner QR":
             with tab_lista:
                 st.info(f"Registro Manual para {ga} - {ma} | Periodo: {periodo_actual}")
                 
-                # 1. Limpieza estricta de la variable del grado actual
-                grado_limpio = str(ga).strip()
+                # 1. Extraer solo los números del grado seleccionado (ej: "Grado 605" o "605" -> "605")
+                num_grado_sel = "".join(filter(str.isdigit, str(ga)))
                 
-                # 2. Consulta en Supabase usando ILIKE para ignorar espacios en blanco o diferencias de formato en la BD
+                # 2. Consultar estudiantes del docente
                 todos_est = supabase.table("estudiantes").select("documento, nombre, grado")\
                     .eq("profe_id", st.session_state.user)\
-                    .ilike("grado", f"%{grado_limpio}%")\
                     .order("nombre").execute().data
                 
-                # 3. Filtro secundario de seguridad en Python que remueve espacios de los registros devueltos
-                brutos_curso = [
-                    e for e in todos_est 
-                    if str(e.get('grado', '')).strip().lower() == grado_limpio.lower()
-                ]
+                # 3. Filtrar comparando únicamente los NÚMEROS del grado (descarta "Grado 701" de inmediato)
+                brutos_curso = []
+                for e in todos_est:
+                    g_est = "".join(filter(str.isdigit, str(e.get('grado', ''))))
+                    if g_est == num_grado_sel and g_est != "":
+                        brutos_curso.append(e)
                 
-                # 4. Desduplicación por nombre único
+                # 4. Desduplicar en memoria por nombre único
                 estudiantes_unicos = {}
                 for e in brutos_curso:
                     nom_clean = str(e.get('nombre', '')).strip().upper()
@@ -454,7 +454,7 @@ elif menu == "📷 Scanner QR":
                         doc_m, nom_m = str(est_sel['documento']).strip(), est_sel['nombre']
                         
                         ahora_m = dt.datetime.now() - dt.timedelta(hours=5)
-                        hoy_m = ahora_m.strftime("%Y-%m-%d")
+                        hoy_m = me_hoy = ahora_m.strftime("%Y-%m-%d")
                         
                         check_m = supabase.table("asistencia").select("id")\
                             .eq("estudiante_id", doc_m)\
