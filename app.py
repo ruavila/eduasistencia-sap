@@ -420,15 +420,26 @@ elif menu == "📷 Scanner QR":
                     .eq("profe_id", st.session_state.user)\
                     .order("nombre").execute().data
                 
-                estudiantes_curso = [
+                # 1. Filtrar por el grado seleccionado
+                brutos_curso = [
                     e for e in todos_est 
                     if str(e.get('grado', '')).strip().lower() == ga.lower()
                 ]
                 
+                # 2. Desduplicar en memoria por NOMBRE de estudiante
+                estudiantes_unicos = {}
+                for e in brutos_curso:
+                    nom_clean = str(e.get('nombre', '')).strip().upper()
+                    if nom_clean and nom_clean not in estudiantes_unicos:
+                        estudiantes_unicos[nom_clean] = e
+                
+                # Lista limpia de exactamente 36 estudiantes
+                estudiantes_curso = sorted(list(estudiantes_unicos.values()), key=lambda x: x['nombre'])
+                
                 if estudiantes_curso:
                     # Selección por nombre de estudiante directamente
                     nombres_estudiantes = [f"{i+1}. {e['nombre']}" for i, e in enumerate(estudiantes_curso)]
-                    est_sel_nombre = st.selectbox("Seleccione el estudiante:", nombres_estudiantes, key=f"sel_man_{ga}")
+                    est_sel_nombre = st.selectbox("Seleccione el estudiante:", nombres_estudiantes, key=f"sel_man_{ga}_{ma}".replace(" ", "_"))
                     
                     idx_seleccionado = nombres_estudiantes.index(est_sel_nombre)
                     
