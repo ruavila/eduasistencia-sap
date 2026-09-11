@@ -364,26 +364,32 @@ elif menu == "📷 Scanner QR":
                     
                     saludo = "*Buenos días*" if ahora_col.hour < 12 else ("*Buenas tardes*" if ahora_col.hour < 18 else "*Buenas noches*")
                     
-                    # 1. Estudiantes matriculados en este grado
-                    todos_est = supabase.table("estudiantes").select("documento, nombre, whatsapp, grado")\
-                        .eq("profe_id", st.session_state.user).execute().data
+                    # 1. Consulta filtrada DIRECTAMENTE en Supabase por Grado, Materia y Docente
+                    todos_est = supabase.table("estudiantes").select("documento, nombre, whatsapp, grado, materia")\
+                        .eq("profe_id", st.session_state.user)\
+                        .eq("grado", ga)\
+                        .eq("materia", ma)\
+                        .order("nombre").execute().data
                     
-                    estudiantes_curso = [
-                        e for e in todos_est 
-                        if str(e.get('grado', '')).strip().lower() == ga.lower()
-                    ]
+                    # 2. Desduplicación en memoria por 'documento' para eliminar copias del mismo estudiante
+                    estudiantes_unicos = {}
+                    for e in todos_est:
+                        doc_k = str(e.get('documento', '')).strip()
+                        if doc_k and doc_k not in estudiantes_unicos:
+                            estudiantes_unicos[doc_k] = e
                     
-                    # 2. Consultar ASISTENCIAS (registradas tanto por QR como Manualmente)
+                    estudiantes_curso = list(estudiantes_unicos.values())
+                    
+                    # 3. Asistencias registradas hoy para este curso y materia
                     asistieron = supabase.table("asistencia").select("estudiante_id")\
                         .eq("grado", ga)\
                         .eq("materia", ma)\
                         .eq("fecha", hoy_col)\
                         .eq("periodo", periodo_actual).execute().data
                     
-                    # Conjunto de IDs de estudiantes que YA ASISTIERON
                     ids_asistieron = set(str(a['estudiante_id']).strip() for a in asistieron if a.get('estudiante_id') is not None)
                     
-                    # 3. Filtrar ausentes excluyendo a los registrados (QR y Manuales)
+                    # 4. Filtrar ausentes estrictamente dentro del grupo matriculado
                     ausentes = [e for e in estudiantes_curso if str(e['documento']).strip() not in ids_asistieron]
                     
                     if ausentes:
