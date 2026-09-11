@@ -251,75 +251,107 @@ elif menu == "👤 Estudiantes":
             st.success(f"Se generaron carnets para {len(df)} estudiantes en formato Carta.")
             st.download_button("📥 Descargar Carnets", pdf.getvalue(), f"Carnets_{gs}.pdf")
 # ==============================================================================
+ # ==============================================================================
 # --- 3. SCANNER QR Y LISTA MANUAL ---
 # ==============================================================================
 elif menu == "📷 Scanner QR":
-        st.subheader("📷 Registro de Asistencia por QR o Lista")
-        
-        # Obtener los cursos asignados al docente
-        mis_cursos = supabase.table("cursos").select("grado, materia")\
-            .eq("profe_id", st.session_state.user).execute().data
-        
-        if mis_cursos:
-            col1, col2, col3 = st.columns([1, 1, 1])
-            with col1:
-                lista_cursos = sorted(list(set([c['grado'] for c in mis_cursos])))
-                ga = st.selectbox("Curso:", lista_cursos)
-            
-            with col2:
-                materias_curso = [c['materia'] for c in mis_cursos if c['grado'] == ga]
-                ma = st.selectbox("Materia:", materias_curso)
-            
-            with col3:
-                tema = st.text_input("Tema de la clase:", "Clase General")
+    import time
+    import datetime as dt
+    import urllib.parse
 
-            # Definición de pestañas
+    st.subheader("Captura de Asistencia por Periodo")
+    
+    # 1. Control de estado de la toma de asistencia
+    if 'captura_finalizada' not in st.session_state:
+        st.session_state.captura_finalizada = False
+
+    cursos = supabase.table("cursos").select("grado, materia").eq("profe_id", st.session_state.user).execute().data
+    
+    if cursos:
+        # Botón para cerrar llamado a lista activo y cambiar de curso
+        col_tit, col_btn_cerrar = st.columns([3, 1])
+        with col_btn_cerrar:
+            if st.button("🔴 Cerrar Clase", use_container_width=True, help="Limpia la selección actual para iniciar llamado en otro curso"):
+                if 'captura_finalizada' in st.session_state:
+                    st.session_state.captura_finalizada = False
+                if 'sel_curso_scan' in st.session_state:
+                    del st.session_state['sel_curso_scan']
+                st.rerun()
+
+        col_c1, col_c2 = st.columns([2, 1])
+        
+        with col_c1:
+            opciones_cursos = sorted(list(set([f"{str(r['grado']).strip()} | {str(r['materia']).strip()}" for r in cursos])))
+            sel_as = st.selectbox("Curso:", opciones_cursos, key="sel_curso_scan")
+            ga, ma = [item.strip() for item in sel_as.split(" | ")]
+        
+        with col_c2:
+            periodo_actual = st.number_input("Periodo Actual:", min_value=1, max_value=4, value=1, step=1, key="num_periodo")
+        
+        tema_input = st.text_input("Tema de la clase:", placeholder="Ej: Introducción a la Multimedia")
+        tema = tema_input.strip() 
+        
+        if tema:
             tab_qr, tab_lista = st.tabs(["📷 Escáner QR", "🔢 Número de Lista"])
             
             # --- TAB 1: ESCÁNER QR ---
             with tab_qr:
-                if not st.session_state.get('captura_finalizada', False):
-                    st.info(f"Escaneando asistencia para {ga} - {ma}")
-                    img_file_buffer = st.camera_input("Enfoque el código QR del estudiante", key="cam_qr")
+                if not st.session_state.captura_finalizada:
+                    st.info(f"📋 **{ga} - {ma}** | Periodo: **{periodo_actual}** | Tema: *{tema}*")
                     
-                    if img_file_buffer is not None:
-                        bytes_data = img_file_buffer.getvalue()
-                        cv2_img = cv2.imdecode(np.frombuffer(bytes_data, np.uint8), cv2.IMREAD_COLOR)
-                        detector = cv2.QRCodeDetector()
-                        data, bbox, _ = detector.detectAndDecode(cv2_img)
+                    if st.button("⏹️ Finalizar y Ver Ausentes", type="primary", use_container_width=True):
+                        st.session_state.captura_finalizada = True
+                        st.rerun()
+                    
+                    cod = qrcode_scanner(key=f"sc_{ga}_{ma}_{periodo_actual}".replace(" ", "_"))
+                    
+                    if cod:
+                        id_cl = str(cod).strip()
                         
-                        if data:
-                            doc_qr = str(data).strip()
-                            st.success(f"QR Detectado: {doc_qr}")
-                            
-                            ahora_col = dt.datetime.now() - dt.timedelta(hours=5)
-                            hoy_col = ahora_col.strftime("%Y-%m-%d")
+                        # Búsqueda directa del estudiante por documento y grado
+                        res = supabase.table("estudiantes").select("documento, nombre, grado")\
+                            .eq("documento", id_cl)\
+                            .eq("grado", ga)\
+                            .eq("profe_id", st.session_state.user).execute().data
+                        
+                        if res:
+                            estudiante_encontrado = res[0]
+                            doc = str(estudiante_encontrado['documento']).strip()
+                            nom = estudiante_encontrado['nombre']
+                            ahora_co = dt.datetime.now() - dt.timedelta(hours=5)
+                            hoy = ahora_co.strftime("%Y-%m-%d")
                             
                             check = supabase.table("asistencia").select("id")\
-                                .eq("estudiante_id", doc_qr)\
-                                .eq("fecha", hoy_col)\
+                                .eq("estudiante_id", doc)\
+                                .eq("fecha", hoy)\
                                 .eq("materia", ma)\
                                 .eq("periodo", periodo_actual).execute().data
                             
                             if not check:
-                                supabase.table("asistencia").insert({
-                                    "estudiante_id": doc_qr, 
-                                    "fecha": hoy_col, 
-                                    "hora": ahora_col.strftime("%H:%M:%S"), 
-                                    "grado": ga, 
-                                    "materia": ma, 
-                                    "tema": tema, 
-                                    "periodo": periodo_actual,
-                                    "profe_id": st.session_state.user
-                                }).execute()
-                                st.success("✅ Asistencia registrada exitosamente.")
+                                try:
+                                    supabase.table("asistencia").insert({
+                                        "estudiante_id": doc, 
+                                        "fecha": hoy, 
+                                        "hora": ahora_co.strftime("%H:%M:%S"), 
+                                        "grado": ga, 
+                                        "materia": ma, 
+                                        "tema": tema, 
+                                        "periodo": periodo_actual,
+                                        "profe_id": st.session_state.user
+                                    }).execute()
+                                    
+                                    st.toast(f"✅ Registrado (P{periodo_actual}): {nom}", icon="👤")
+                                    st.success(f"👤 **Estudiante detectado ({ga}):** {nom}")
+                                    time.sleep(0.5)
+                                except Exception as e:
+                                    st.error(f"Error al guardar asistencia: {e}")
                             else:
-                                st.warning("El estudiante ya registró asistencia hoy.")
-                            st.rerun()
-
-                    if st.button("🏁 Finalizar y Ver Ausentes", type="primary", use_container_width=True):
-                        st.session_state.captura_finalizada = True
-                        st.rerun()
+                                st.toast(f"ℹ️ {nom} ya registrado hoy en P{periodo_actual}", icon="✅")
+                                st.warning(f"El estudiante **{nom}** ya fue registrado previamente hoy.")
+                        else:
+                            st.toast(f"⚠️ Código {id_cl} no asignado a {ga}", icon="❌")
+                            st.error(f"El código **{id_cl}** no se encuentra registrado en el grado **{ga}**.")
+                
                 else:
                     if st.button("🔄 Volver a escanear / Reabrir Clase", use_container_width=True):
                         st.session_state.captura_finalizada = False
@@ -333,44 +365,30 @@ elif menu == "📷 Scanner QR":
                     
                     saludo = "*Buenos días*" if ahora_col.hour < 12 else ("*Buenas tardes*" if ahora_col.hour < 18 else "*Buenas noches*")
                     
-                    todos_est = supabase.table("estudiantes").select("documento, nombre, whatsapp, grado, materia")\
-                        .eq("profe_id", st.session_state.user)\
-                        .eq("grado", ga)\
-                        .eq("materia", ma)\
-                        .order("nombre").execute().data
+                    # 1. Estudiantes matriculados en este grado
+                    todos_est = supabase.table("estudiantes").select("documento, nombre, whatsapp, grado")\
+                        .eq("profe_id", st.session_state.user).execute().data
                     
-                    # Desduplicación en memoria agrupando por nombre único
-                    estudiantes_por_nombre = {}
-                    for e in todos_est:
-                        nom_k = str(e.get('nombre', '')).upper().strip()
-                        doc_k = str(e.get('documento', '')).strip()
-                        if nom_k and doc_k:
-                            if nom_k not in estudiantes_por_nombre:
-                                estudiantes_por_nombre[nom_k] = {
-                                    "nombre": nom_k,
-                                    "whatsapp": e.get('whatsapp', ''),
-                                    "docs": [doc_k]
-                                }
-                            else:
-                                if doc_k not in estudiantes_por_nombre[nom_k]["docs"]:
-                                    estudiantes_por_nombre[nom_k]["docs"].append(doc_k)
+                    estudiantes_curso = [
+                        e for e in todos_est 
+                        if str(e.get('grado', '')).strip().lower() == ga.lower()
+                    ]
                     
+                    # 2. Consultar ASISTENCIAS (registradas tanto por QR como Manualmente)
                     asistieron = supabase.table("asistencia").select("estudiante_id")\
                         .eq("grado", ga)\
                         .eq("materia", ma)\
                         .eq("fecha", hoy_col)\
                         .eq("periodo", periodo_actual).execute().data
                     
+                    # Conjunto de IDs de estudiantes que YA ASISTIERON
                     ids_asistieron = set(str(a['estudiante_id']).strip() for a in asistieron if a.get('estudiante_id') is not None)
                     
-                    ausentes = []
-                    for nom, datos in estudiantes_por_nombre.items():
-                        has_attended = any(doc_id in ids_asistieron for doc_id in datos["docs"])
-                        if not has_attended:
-                            ausentes.append(datos)
+                    # 3. Filtrar ausentes excluyendo a los registrados (QR y Manuales)
+                    ausentes = [e for e in estudiantes_curso if str(e['documento']).strip() not in ids_asistieron]
                     
                     if ausentes:
-                        st.write(f"Total ausentes: **{len(ausentes)}** de **{len(estudiantes_por_nombre)}** matriculados.")
+                        st.write(f"Total ausentes: **{len(ausentes)}** de **{len(estudiantes_curso)}** matriculados.")
                         
                         for aus in ausentes:
                             col_a, col_b = st.columns([3, 1])
@@ -394,29 +412,23 @@ elif menu == "📷 Scanner QR":
                     else:
                         st.success("🎉 ¡Asistencia completa! No se reportan ausentes hoy.")
 
-            # --- TAB 2: LISTA MANUAL / NÚMERO DE LISTA ---
+            # --- TAB 2: LISTA MANUAL ---
             with tab_lista:
                 st.info(f"Registro Manual para {ga} - {ma} | Periodo: {periodo_actual}")
                 
-                # 1. Consulta de estudiantes filtrando directamente por grado, materia y docente en Supabase
-                todos_est = supabase.table("estudiantes").select("documento, nombre, grado, materia")\
+                todos_est = supabase.table("estudiantes").select("documento, nombre, grado")\
                     .eq("profe_id", st.session_state.user)\
-                    .eq("grado", ga)\
-                    .eq("materia", ma)\
                     .order("nombre").execute().data
                 
-                # 2. Desduplicación por nombre en mayúsculas para evitar nombres o documentos duplicados
-                estudiantes_unicos = {}
-                for e in todos_est:
-                    nom_clean = str(e.get('nombre', '')).strip().upper()
-                    if nom_clean and nom_clean not in estudiantes_unicos:
-                        estudiantes_unicos[nom_clean] = e
-                
-                estudiantes_curso = sorted(list(estudiantes_unicos.values()), key=lambda x: x['nombre'])
+                estudiantes_curso = [
+                    e for e in todos_est 
+                    if str(e.get('grado', '')).strip().lower() == ga.lower()
+                ]
                 
                 if estudiantes_curso:
+                    # Selección por nombre de estudiante directamente
                     nombres_estudiantes = [f"{i+1}. {e['nombre']}" for i, e in enumerate(estudiantes_curso)]
-                    est_sel_nombre = st.selectbox("Seleccione el estudiante:", nombres_estudiantes, key=f"sel_man_{ga}_{ma}".replace(" ", "_"))
+                    est_sel_nombre = st.selectbox("Seleccione el estudiante:", nombres_estudiantes, key=f"sel_man_{ga}")
                     
                     idx_seleccionado = nombres_estudiantes.index(est_sel_nombre)
                     
@@ -449,10 +461,11 @@ elif menu == "📷 Scanner QR":
                         else:
                             st.warning(f"El estudiante {nom_m} ya cuenta con registro de asistencia para hoy.")
                 else:
-                    st.warning(f"No se encontraron estudiantes registrados para el grado {ga} en {ma}.")
+                    st.warning(f"No se encontraron estudiantes registrados para el grado {ga}.")
+    else:
+        st.error("No tienes cursos asignados. Por favor, crea un curso primero en la configuración.")
 
-        else:
-            st.error("No tienes cursos asignados. Por favor, crea un curso primero en la configuración.")
+    
 # --- 4. SECCIÓN DE REPORTES (PDF DETALLADO POR PERIODO - FORMATO INSTITUCIONAL) ---
 elif menu == "📊 Reportes":
     # Importaciones necesarias para esta sección (asegúrate de tener fpdf2, pandas, datetime, io, os instalados)
