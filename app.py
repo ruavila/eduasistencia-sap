@@ -482,7 +482,7 @@ elif menu == "📷 Scanner QR":
                 else:
                     st.warning(f"No se encontraron estudiantes registrados para el grado {ga} en {ma}.")
                 else:
-        st.error("No tienes cursos asignados. Por favor, crea un curso primero en la configuración.")
+                    st.error("No tienes cursos asignados. Por favor, crea un curso primero en la configuración.")
 # --- 4. SECCIÓN DE REPORTES (PDF DETALLADO POR PERIODO - FORMATO INSTITUCIONAL) ---
 elif menu == "📊 Reportes":
     # Importaciones necesarias para esta sección (asegúrate de tener fpdf2, pandas, datetime, io, os instalados)
