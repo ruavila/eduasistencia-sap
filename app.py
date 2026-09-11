@@ -251,6 +251,7 @@ elif menu == "👤 Estudiantes":
             st.success(f"Se generaron carnets para {len(df)} estudiantes en formato Carta.")
             st.download_button("📥 Descargar Carnets", pdf.getvalue(), f"Carnets_{gs}.pdf")
 # ==============================================================================
+# --- 3. SCANNER QR Y LISTA MANUAL ---
  # ==============================================================================
 elif menu == "📷 Scanner QR":
     import time
@@ -414,19 +415,28 @@ elif menu == "📷 Scanner QR":
                     else:
                         st.success("🎉 ¡Asistencia completa! No se reportan ausentes hoy.")
 
-            # --- TAB 2: LISTA MANUAL ---
+            # --- TAB 2: LISTA MANUAL / NÚMERO DE LISTA ---
             with tab_lista:
                 st.info(f"Registro Manual para {ga} - {ma} | Periodo: {periodo_actual}")
                 
-                # Consulta FILTRADA DIRECTAMENTE en Supabase por grado exacto
+                # 1. Limpieza estricta de la variable del grado actual
+                grado_limpio = str(ga).strip()
+                
+                # 2. Consulta en Supabase usando ILIKE para ignorar espacios en blanco o diferencias de formato en la BD
                 todos_est = supabase.table("estudiantes").select("documento, nombre, grado")\
                     .eq("profe_id", st.session_state.user)\
-                    .eq("grado", ga)\
+                    .ilike("grado", f"%{grado_limpio}%")\
                     .order("nombre").execute().data
                 
-                # Desduplicación por nombre
+                # 3. Filtro secundario de seguridad en Python que remueve espacios de los registros devueltos
+                brutos_curso = [
+                    e for e in todos_est 
+                    if str(e.get('grado', '')).strip().lower() == grado_limpio.lower()
+                ]
+                
+                # 4. Desduplicación por nombre único
                 estudiantes_unicos = {}
-                for e in todos_est:
+                for e in brutos_curso:
                     nom_clean = str(e.get('nombre', '')).strip().upper()
                     if nom_clean and nom_clean not in estudiantes_unicos:
                         estudiantes_unicos[nom_clean] = e
