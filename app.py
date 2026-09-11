@@ -415,37 +415,43 @@ elif menu == "📷 Scanner QR":
                     else:
                         st.success("🎉 ¡Asistencia completa! No se reportan ausentes hoy.")
 
-            # --- TAB 2: LISTA MANUAL / NÚMERO DE LISTA ---
+            # --- TAB 2: LISTA MANUAL ---
             with tab_lista:
                 st.info(f"Registro Manual para {ga} - {ma} | Periodo: {periodo_actual}")
                 
-                # 1. Extraer solo los números del grado seleccionado (ej: "Grado 605" o "605" -> "605")
-                num_grado_sel = "".join(filter(str.isdigit, str(ga)))
-                
-                # 2. Consultar estudiantes del docente
-                todos_est = supabase.table("estudiantes").select("documento, nombre, grado")\
+                # 1. Traer ÚNICAMENTE los estudiantes que pertenecen al grado 'ga' seleccionado
+                res_est = supabase.table("estudiantes").select("documento, nombre, grado")\
                     .eq("profe_id", st.session_state.user)\
+                    .eq("grado", ga)\
                     .order("nombre").execute().data
                 
-                # 3. Filtrar comparando únicamente los NÚMEROS del grado (descarta "Grado 701" de inmediato)
-                brutos_curso = []
-                for e in todos_est:
-                    g_est = "".join(filter(str.isdigit, str(e.get('grado', ''))))
-                    if g_est == num_grado_sel and g_est != "":
-                        brutos_curso.append(e)
-                
-                # 4. Desduplicar en memoria por nombre único
+                # Fallback de seguridad: si en la BD se guardó como "Grado 605" o "605"
+                if not res_est:
+                    num_g = "".join(filter(str.isdigit, str(ga)))
+                    todos_est = supabase.table("estudiantes").select("documento, nombre, grado")\
+                        .eq("profe_id", st.session_state.user).execute().data
+                    res_est = [
+                        e for e in todos_est 
+                        if "".join(filter(str.isdigit, str(e.get('grado', '')))) == num_g
+                    ]
+
+                # 2. Desduplicación estricta por NOMBRE en memoria
                 estudiantes_unicos = {}
-                for e in brutos_curso:
+                for e in res_est:
                     nom_clean = str(e.get('nombre', '')).strip().upper()
                     if nom_clean and nom_clean not in estudiantes_unicos:
                         estudiantes_unicos[nom_clean] = e
                 
+                # Lista ordenada final
                 estudiantes_curso = sorted(list(estudiantes_unicos.values()), key=lambda x: x['nombre'])
                 
                 if estudiantes_curso:
                     nombres_estudiantes = [f"{i+1}. {e['nombre']}" for i, e in enumerate(estudiantes_curso)]
-                    est_sel_nombre = st.selectbox("Seleccione el estudiante:", nombres_estudiantes, key=f"sel_man_{ga}_{ma}".replace(" ", "_"))
+                    est_sel_nombre = st.selectbox(
+                        f"Seleccione el estudiante ({len(estudiantes_curso)} asignados a {ga}):", 
+                        nombres_estudiantes, 
+                        key=f"sel_man_{ga}_{ma}".replace(" ", "_")
+                    )
                     
                     idx_seleccionado = nombres_estudiantes.index(est_sel_nombre)
                     
@@ -454,7 +460,7 @@ elif menu == "📷 Scanner QR":
                         doc_m, nom_m = str(est_sel['documento']).strip(), est_sel['nombre']
                         
                         ahora_m = dt.datetime.now() - dt.timedelta(hours=5)
-                        hoy_m = me_hoy = ahora_m.strftime("%Y-%m-%d")
+                        hoy_m = ahora_m.strftime("%Y-%m-%d")
                         
                         check_m = supabase.table("asistencia").select("id")\
                             .eq("estudiante_id", doc_m)\
