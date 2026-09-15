@@ -332,7 +332,7 @@ elif menu == "📷 Scanner QR":
                             
                             if not check:
                                 try:
-                                    payload = {
+                                    supabase.table("asistencia").insert({
                                         "estudiante_id": doc, 
                                         "fecha": hoy, 
                                         "hora": ahora_co.strftime("%H:%M:%S"), 
@@ -341,8 +341,7 @@ elif menu == "📷 Scanner QR":
                                         "tema": tema, 
                                         "periodo": periodo_actual,
                                         "profe_id": st.session_state.user
-                                    }
-                                    supabase.table("asistencia").insert(payload).execute()
+                                    }).execute()
                                     
                                     st.toast(f"✅ Registrado (P{periodo_actual}): {nom}", icon="👤")
                                     st.success(f"👤 **Estudiante detectado ({ga}):** {nom}")
@@ -381,18 +380,18 @@ elif menu == "📷 Scanner QR":
                     
                     estudiantes_curso = sorted(list(estudiantes_unicos.values()), key=lambda x: x['nombre'])
                     
-                    asistieron_raw = supabase.table("asistencia").select("*")\
+                    asistieron_raw = supabase.table("asistencia").select("estudiante_id, tema")\
                         .eq("grado", ga)\
                         .eq("materia", ma)\
                         .eq("fecha", hoy_col)\
                         .eq("periodo", periodo_actual).execute().data
                     
-                    # Filtrar ausentes excluyendo asistencias y excusas/permisos
                     registros_excluidos = set()
                     for r in asistieron_raw:
                         est_id = str(r.get('estudiante_id', '')).strip()
-                        est_estado = str(r.get('estado', 'Presente')).strip()
-                        if est_estado in ["Presente", "Excusa Médica", "Permiso Institucional", "Llegada Tardía"]:
+                        tema_r = str(r.get('tema', '')).strip()
+                        # Excluir de ausentes a quienes tienen Presente, Excusas o Permisos
+                        if not ("[Ausente]" in tema_r):
                             registros_excluidos.add(est_id)
 
                     ausentes = [e for e in estudiantes_curso if str(e['documento']).strip() not in registros_excluidos]
@@ -472,21 +471,19 @@ elif menu == "📷 Scanner QR":
                             .eq("materia", ma)\
                             .eq("periodo", periodo_actual).execute().data
                         
+                        # Almacenar el estado dentro del campo tema de forma segura
+                        tema_guardar = f"{tema} [{estado_sel}]" if estado_sel != "Presente" else tema
+                        
                         payload_manual = {
                             "estudiante_id": doc_m, 
                             "fecha": hoy_m, 
                             "hora": ahora_m.strftime("%H:%M:%S"), 
                             "grado": ga, 
                             "materia": ma, 
-                            "tema": tema, 
+                            "tema": tema_guardar, 
                             "periodo": periodo_actual,
                             "profe_id": st.session_state.user
                         }
-                        
-                        # Guardamos el estado opcional si la columna existe en BD
-                        try:
-                            payload_manual["estado"] = estado_sel
-                        except: pass
                         
                         if not check_m:
                             supabase.table("asistencia").insert(payload_manual).execute()
@@ -535,7 +532,7 @@ elif menu == "📊 Reportes":
                     .eq("grado", ga_rep)\
                     .eq("profe_id", st.session_state.user).order("nombre").execute().data
 
-                asistencia_data = supabase.table("asistencia").select("*")\
+                asistencia_data = supabase.table("asistencia").select("estudiante_id, fecha, tema")\
                     .eq("grado", ga_rep)\
                     .eq("materia", ma_rep)\
                     .eq("periodo", periodo_rep)\
@@ -549,15 +546,18 @@ elif menu == "📊 Reportes":
                 except: pass
                 df_reporte = df_reporte.set_index('documento')
                 
+                # Limpiar temas para agrupar las columnas del reporte sin la etiqueta del estado
                 df_asistencia = pd.DataFrame(asistencia_data)
-                df_clases = df_asistencia[['fecha', 'tema']].drop_duplicates().sort_values('fecha')
+                df_asistencia['tema_limpio'] = df_asistencia['tema'].apply(lambda x: x.split(" [")[0].strip() if " [" in str(x) else str(x).strip())
+                
+                df_clases = df_asistencia[['fecha', 'tema_limpio']].drop_duplicates().sort_values('fecha')
                 
                 columnas_dinamicas = []
                 reporte_final = df_reporte.copy()
 
                 for _, clase in df_clases.iterrows():
                     fecha_fmt = formatear_fecha_reporte(clase['fecha'])
-                    tema_raw = clase['tema']
+                    tema_raw = clase['tema_limpio']
                     try:
                         tema_latin = tema_raw.encode('latin-1', 'ignore').decode('latin-1')
                         encabezado_col = f"{tema_latin}\n{fecha_fmt}"
@@ -572,7 +572,8 @@ elif menu == "📊 Reportes":
                 for registro in asistencia_data:
                     id_est = registro['estudiante_id']
                     if id_est in reporte_final.index:
-                        tema_reg = registro['tema']
+                        tema_full = str(registro['tema'])
+                        tema_reg = tema_full.split(" [")[0].strip() if " [" in tema_full else tema_full.strip()
                         fecha_fmt_reg = formatear_fecha_reporte(registro['fecha'])
                         
                         try:
@@ -582,14 +583,13 @@ elif menu == "📊 Reportes":
                             col_pi = f"{tema_reg}\n{fecha_fmt_reg}"
                         
                         if col_pi in reporte_final.columns:
-                            st_val = str(registro.get('estado', 'Presente')).strip()
-                            if st_val == "Excusa Médica":
+                            if "[Excusa Médica]" in tema_full:
                                 val_marcar = 'E'
-                            elif st_val == "Permiso Institucional":
+                            elif "[Permiso Institucional]" in tema_full:
                                 val_marcar = 'P'
-                            elif st_val == "Llegada Tardía":
+                            elif "[Llegada Tardía]" in tema_full:
                                 val_marcar = 'T'
-                            elif st_val == "Ausente":
+                            elif "[Ausente]" in tema_full:
                                 val_marcar = 'X'
                             else:
                                 val_marcar = check_pi_latin
