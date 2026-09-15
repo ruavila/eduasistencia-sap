@@ -23,6 +23,7 @@ APP_VERSION = "v2.1.0"
 DEVELOPER_NAME = "Rubén Darío Ávila Sandoval"
 IE_INITIALS = "I.E. S.A.P."
 COLEGIO = "Institución Educativa San Antonio de Padua"
+ESTADOS_ASISTENCIA = ["Presente", "Ausente", "Excusa Médica", "Permiso Institucional", "Llegada Tardía"]
 # ==============================================================================
 
 # --- INTEGRACIÓN CON MÓDULOS ---
@@ -331,7 +332,7 @@ elif menu == "📷 Scanner QR":
                             
                             if not check:
                                 try:
-                                    supabase.table("asistencia").insert({
+                                    payload = {
                                         "estudiante_id": doc, 
                                         "fecha": hoy, 
                                         "hora": ahora_co.strftime("%H:%M:%S"), 
@@ -340,7 +341,8 @@ elif menu == "📷 Scanner QR":
                                         "tema": tema, 
                                         "periodo": periodo_actual,
                                         "profe_id": st.session_state.user
-                                    }).execute()
+                                    }
+                                    supabase.table("asistencia").insert(payload).execute()
                                     
                                     st.toast(f"✅ Registrado (P{periodo_actual}): {nom}", icon="👤")
                                     st.success(f"👤 **Estudiante detectado ({ga}):** {nom}")
@@ -379,14 +381,21 @@ elif menu == "📷 Scanner QR":
                     
                     estudiantes_curso = sorted(list(estudiantes_unicos.values()), key=lambda x: x['nombre'])
                     
-                    asistieron = supabase.table("asistencia").select("estudiante_id")\
+                    asistieron_raw = supabase.table("asistencia").select("*")\
                         .eq("grado", ga)\
                         .eq("materia", ma)\
                         .eq("fecha", hoy_col)\
                         .eq("periodo", periodo_actual).execute().data
                     
-                    ids_asistieron = set(str(a['estudiante_id']).strip() for a in asistieron if a.get('estudiante_id') is not None)
-                    ausentes = [e for e in estudiantes_curso if str(e['documento']).strip() not in ids_asistieron]
+                    # Filtrar ausentes excluyendo asistencias y excusas/permisos
+                    registros_excluidos = set()
+                    for r in asistieron_raw:
+                        est_id = str(r.get('estudiante_id', '')).strip()
+                        est_estado = str(r.get('estado', 'Presente')).strip()
+                        if est_estado in ["Presente", "Excusa Médica", "Permiso Institucional", "Llegada Tardía"]:
+                            registros_excluidos.add(est_id)
+
+                    ausentes = [e for e in estudiantes_curso if str(e['documento']).strip() not in registros_excluidos]
                     
                     if ausentes:
                         st.write(f"Total ausentes: **{len(ausentes)}** de **{len(estudiantes_curso)}** matriculados.")
@@ -421,6 +430,8 @@ elif menu == "📷 Scanner QR":
                 with col_f1:
                     fecha_sel = st.date_input("Fecha de Registro:", value=datetime.now())
                     hoy_m = fecha_sel.strftime("%Y-%m-%d")
+                with col_f2:
+                    estado_sel = st.selectbox("Estado del Registro:", ESTADOS_ASISTENCIA, index=0)
                 
                 todos_est = supabase.table("estudiantes").select("documento, nombre, grado")\
                     .eq("profe_id", st.session_state.user).execute().data
@@ -461,21 +472,28 @@ elif menu == "📷 Scanner QR":
                             .eq("materia", ma)\
                             .eq("periodo", periodo_actual).execute().data
                         
+                        payload_manual = {
+                            "estudiante_id": doc_m, 
+                            "fecha": hoy_m, 
+                            "hora": ahora_m.strftime("%H:%M:%S"), 
+                            "grado": ga, 
+                            "materia": ma, 
+                            "tema": tema, 
+                            "periodo": periodo_actual,
+                            "profe_id": st.session_state.user
+                        }
+                        
+                        # Guardamos el estado opcional si la columna existe en BD
+                        try:
+                            payload_manual["estado"] = estado_sel
+                        except: pass
+                        
                         if not check_m:
-                            supabase.table("asistencia").insert({
-                                "estudiante_id": doc_m, 
-                                "fecha": hoy_m, 
-                                "hora": ahora_m.strftime("%H:%M:%S"), 
-                                "grado": ga, 
-                                "materia": ma, 
-                                "tema": tema, 
-                                "periodo": periodo_actual,
-                                "profe_id": st.session_state.user
-                            }).execute()
-                            st.success(f"Asistencia marcada correctamente para: {nom_m} en la fecha {hoy_m}")
+                            supabase.table("asistencia").insert(payload_manual).execute()
+                            st.success(f"Registro guardado como **{estado_sel}** para: {nom_m} ({hoy_m})")
                             st.rerun()
                         else:
-                            st.warning(f"El estudiante {nom_m} ya cuenta con registro de asistencia para la fecha {hoy_m}.")
+                            st.warning(f"El estudiante {nom_m} ya cuenta con registro para la fecha {hoy_m}.")
                 else:
                     st.warning(f"No se encontraron estudiantes registrados para el grado {ga}.")
     else:
@@ -517,7 +535,7 @@ elif menu == "📊 Reportes":
                     .eq("grado", ga_rep)\
                     .eq("profe_id", st.session_state.user).order("nombre").execute().data
 
-                asistencia_data = supabase.table("asistencia").select("estudiante_id, fecha, tema")\
+                asistencia_data = supabase.table("asistencia").select("*")\
                     .eq("grado", ga_rep)\
                     .eq("materia", ma_rep)\
                     .eq("periodo", periodo_rep)\
@@ -564,7 +582,19 @@ elif menu == "📊 Reportes":
                             col_pi = f"{tema_reg}\n{fecha_fmt_reg}"
                         
                         if col_pi in reporte_final.columns:
-                            reporte_final.loc[id_est, col_pi] = check_pi_latin
+                            st_val = str(registro.get('estado', 'Presente')).strip()
+                            if st_val == "Excusa Médica":
+                                val_marcar = 'E'
+                            elif st_val == "Permiso Institucional":
+                                val_marcar = 'P'
+                            elif st_val == "Llegada Tardía":
+                                val_marcar = 'T'
+                            elif st_val == "Ausente":
+                                val_marcar = 'X'
+                            else:
+                                val_marcar = check_pi_latin
+                                
+                            reporte_final.loc[id_est, col_pi] = val_marcar
 
                 df_aux = reporte_final[columnas_dinamicas]
                 reporte_final['Asist'] = (df_aux == check_pi_latin).sum(axis=1)
