@@ -38,7 +38,7 @@ except Exception as e:
 IE_INITIALS = "I.E. S.A.P."
 
 # --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title=APP_NAME, layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title=APP_NAME, layout="wide", initial_sidebar_state="expanded")
 
 if 'logueado' not in st.session_state: 
     st.session_state.logueado = False
@@ -113,6 +113,15 @@ if not st.session_state.logueado:
                         else: st.error("Respuesta incorrecta.")
     st.stop()
 
+# --- BARRA LATERAL (NAVEGACIÓN Y CERRAR SESIÓN) ---
+with st.sidebar:
+    st.title("📌 Menú")
+    menu = st.radio("Navegación", ["📚 Cursos", "👤 Estudiantes", "📷 Scanner QR", "📊 Reportes", "⚙️ Reinicio"])
+    st.markdown("---")
+    if st.button("🚪 Cerrar Sesión", use_container_width=True, type="secondary"):
+        st.session_state.logueado = False
+        st.rerun()
+
 # --- CABECERA ---
 col_esc, col_txt = st.columns([1, 4])
 with col_esc:
@@ -121,9 +130,7 @@ with col_txt:
     st.markdown(f"<h2 style='margin:0;'>{COLEGIO}</h2>", unsafe_allow_html=True)
     st.markdown(f"<p style='margin:0; color:#4F8BF9;'><b>{APP_NAME}</b> | Docente: {st.session_state.profe_nom}</p>", unsafe_allow_html=True)
 
-# ==============================================================================
-# --- MEJORA 1: RESUMEN DE MÉTRICAS EN EL DASHBOARD PRINCIPAL ---
-# ==============================================================================
+# --- DASHBOARD DE MÉTRICAS EN CABECERA ---
 try:
     ahora_m_dash = datetime.now() - timedelta(hours=5)
     hoy_m_dash = ahora_m_dash.strftime("%Y-%m-%d")
@@ -145,12 +152,10 @@ try:
         st.metric(label="👥 Cursos Atendidos Hoy", value=clases_atendidas)
     with m3:
         st.metric(label="🟢 Estado del Sistema", value="Conectado")
-except Exception as e:
+except Exception:
     st.caption("Cargando métricas del día...")
 
 st.divider()
-
-menu = st.sidebar.radio("Navegación", ["📚 Cursos", "👤 Estudiantes", "📷 Scanner QR", "📊 Reportes", "⚙️ Reinicio"])
 
 # --- 1. CURSOS ---
 if menu == "📚 Cursos":
@@ -334,7 +339,6 @@ elif menu == "📷 Scanner QR":
                                         "materia": ma, 
                                         "tema": tema, 
                                         "periodo": periodo_actual,
-                                        "estado": "Presente",
                                         "profe_id": st.session_state.user
                                     }).execute()
                                     
@@ -375,26 +379,17 @@ elif menu == "📷 Scanner QR":
                     
                     estudiantes_curso = sorted(list(estudiantes_unicos.values()), key=lambda x: x['nombre'])
                     
-                    # ==========================================================
-                    # --- MEJORA 3: FILTRAR AUSENTES EXCLUYENDO EXCUSAS Y PERMISOS ---
-                    # ==========================================================
-                    asistieron = supabase.table("asistencia").select("estudiante_id, estado")\
+                    asistieron = supabase.table("asistencia").select("estudiante_id")\
                         .eq("grado", ga)\
                         .eq("materia", ma)\
                         .eq("fecha", hoy_col)\
                         .eq("periodo", periodo_actual).execute().data
                     
-                    # Excluye del reporte de WhatsApp a los presentes, justificantes o permisos
-                    ids_excluidos = set(
-                        str(a['estudiante_id']).strip() 
-                        for a in asistieron 
-                        if a.get('estudiante_id') is not None and a.get('estado') in ['Presente', 'Excusa Médica', 'Permiso Institucional']
-                    )
-                    
-                    ausentes = [e for e in estudiantes_curso if str(e['documento']).strip() not in ids_excluidos]
+                    ids_asistieron = set(str(a['estudiante_id']).strip() for a in asistieron if a.get('estudiante_id') is not None)
+                    ausentes = [e for e in estudiantes_curso if str(e['documento']).strip() not in ids_asistieron]
                     
                     if ausentes:
-                        st.write(f"Total ausentes sin justificar: **{len(ausentes)}** de **{len(estudiantes_curso)}** matriculados.")
+                        st.write(f"Total ausentes: **{len(ausentes)}** de **{len(estudiantes_curso)}** matriculados.")
                         
                         for aus in ausentes:
                             col_a, col_b = st.columns([3, 1])
@@ -416,25 +411,16 @@ elif menu == "📷 Scanner QR":
                             link_wa = f"https://wa.me/57{num_wa}?text={msg_encoded}"
                             col_b.markdown(f"[📲 Notificar]({link_wa})")
                     else:
-                        st.success("🎉 ¡No hay reportes de inasistencia pendientes por notificar hoy!")
+                        st.success("🎉 ¡No hay reportes de inasistencia pendientes hoy!")
 
             # --- TAB 2: LISTA MANUAL ---
             with tab_lista:
                 st.info(f"Registro Manual para {ga} - {ma} | Periodo: {periodo_actual}")
                 
-                # ==========================================================
-                # --- MEJORA 2: FILTRO DE FECHA PASADA Y SELECCIÓN DE ESTADO ---
-                # ==========================================================
                 col_f1, col_f2 = st.columns([1, 1])
                 with col_f1:
                     fecha_sel = st.date_input("Fecha de Registro:", value=datetime.now())
                     hoy_m = fecha_sel.strftime("%Y-%m-%d")
-                
-                with col_f2:
-                    estado_asist = st.selectbox(
-                        "Estado de Asistencia:", 
-                        ["Presente", "Ausente", "Excusa Médica", "Permiso Institucional", "Llegada Tardía"]
-                    )
                 
                 todos_est = supabase.table("estudiantes").select("documento, nombre, grado")\
                     .eq("profe_id", st.session_state.user).execute().data
@@ -484,10 +470,9 @@ elif menu == "📷 Scanner QR":
                                 "materia": ma, 
                                 "tema": tema, 
                                 "periodo": periodo_actual,
-                                "estado": estado_asist,
                                 "profe_id": st.session_state.user
                             }).execute()
-                            st.success(f"Asistencia ({estado_asist}) marcada correctamente para: {nom_m} en la fecha {hoy_m}")
+                            st.success(f"Asistencia marcada correctamente para: {nom_m} en la fecha {hoy_m}")
                             st.rerun()
                         else:
                             st.warning(f"El estudiante {nom_m} ya cuenta con registro de asistencia para la fecha {hoy_m}.")
@@ -532,7 +517,7 @@ elif menu == "📊 Reportes":
                     .eq("grado", ga_rep)\
                     .eq("profe_id", st.session_state.user).order("nombre").execute().data
 
-                asistencia_data = supabase.table("asistencia").select("estudiante_id, fecha, tema, estado")\
+                asistencia_data = supabase.table("asistencia").select("estudiante_id, fecha, tema")\
                     .eq("grado", ga_rep)\
                     .eq("materia", ma_rep)\
                     .eq("periodo", periodo_rep)\
@@ -571,7 +556,6 @@ elif menu == "📊 Reportes":
                     if id_est in reporte_final.index:
                         tema_reg = registro['tema']
                         fecha_fmt_reg = formatear_fecha_reporte(registro['fecha'])
-                        estado_reg = registro.get('estado', 'Presente')
                         
                         try:
                             tema_latin_reg = tema_reg.encode('latin-1', 'ignore').decode('latin-1')
@@ -580,10 +564,7 @@ elif menu == "📊 Reportes":
                             col_pi = f"{tema_reg}\n{fecha_fmt_reg}"
                         
                         if col_pi in reporte_final.columns:
-                            if estado_reg in ['Presente', 'Llegada Tardía']:
-                                reporte_final.loc[id_est, col_pi] = check_pi_latin
-                            elif estado_reg in ['Excusa Médica', 'Permiso Institucional']:
-                                reporte_final.loc[id_est, col_pi] = 'E'
+                            reporte_final.loc[id_est, col_pi] = check_pi_latin
 
                 df_aux = reporte_final[columnas_dinamicas]
                 reporte_final['Asist'] = (df_aux == check_pi_latin).sum(axis=1)
@@ -740,8 +721,3 @@ footer_html = f"""
     </div>
 """
 st.markdown(footer_html, unsafe_allow_html=True)
-
-if st.session_state.logueado:
-    if st.sidebar.button("Cerrar Sesión"):
-        st.session_state.logueado = False
-        st.rerun()
