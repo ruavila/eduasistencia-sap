@@ -501,70 +501,97 @@ elif menu == "📷 Scanner / Asistencia":
             else:
                 st.info("Ingresa el tema de la clase antes de continuar.")
 
-        # --- TAB 3: MODIFICAR FECHAS ANTERIORES ---
+        # --- TAB 3: MODIFICAR FECHAS ANTERIORES (CORREGIDO) ---
         with tab_editar:
             st.info(f"Edición / Corrección de Asistencia para **{ga} - {ma}** (Periodo {periodo_actual})")
             
             fecha_mod = st.date_input("Seleccione la Fecha a Modificar:", value=datetime.now(), key="f_mod_tab")
             fecha_mod_str = fecha_mod.strftime("%Y-%m-%d")
             
-            # Consultar registros existentes para la fecha seleccionada
-            registros_existentes = supabase.table("asistencia").select("id, estudiante_id, tema, hora")\
+            # 1. Obtener TODOS los estudiantes del curso
+            estudiantes_curso = supabase.table("estudiantes").select("documento, nombre")\
                 .eq("grado", ga)\
-                .eq("materia", ma)\
-                .eq("periodo", periodo_actual)\
-                .eq("fecha", fecha_mod_str)\
-                .eq("profe_id", st.session_state.user).execute().data
+                .eq("profe_id", st.session_state.user)\
+                .order("nombre").execute().data
+
+            if estudiantes_curso:
+                # 2. Obtener los registros de asistencia ya almacenados para esa fecha
+                registros_existentes = supabase.table("asistencia").select("id, estudiante_id, tema")\
+                    .eq("grado", ga)\
+                    .eq("materia", ma)\
+                    .eq("periodo", periodo_actual)\
+                    .eq("fecha", fecha_mod_str)\
+                    .eq("profe_id", st.session_state.user).execute().data
                 
-            if registros_existentes:
-                ids_registrados = [r['estudiante_id'] for r in registros_existentes]
-                
-                estudiantes_info = supabase.table("estudiantes").select("documento, nombre")\
-                    .in_("documento", ids_registrados).execute().data
-                    
-                mapa_nombres = {e['documento']: e['nombre'] for e in estudiantes_info}
-                
+                # Mapear los registros existentes por documento de estudiante
+                mapa_asistencia = {r['estudiante_id']: r for r in registros_existentes}
+
+                # Buscar el tema registrado originalmente para reusarlo
+                tema_original = ""
+                if registros_existentes:
+                    tema_original = str(registros_existentes[0]['tema']).split(" [")[0].strip()
+
                 opciones_mod = []
-                mapa_registros = {}
-                
-                for reg in registros_existentes:
-                    doc_e = reg['estudiante_id']
-                    nombre_e = mapa_nombres.get(doc_e, doc_e)
-                    tema_full = str(reg['tema'])
-                    
-                    # Detectar el estado actual alojado en el tema
-                    estado_actual = "Presente"
-                    for est in ESTADOS_ASISTENCIA:
-                        if f"[{est}]" in tema_full:
-                            estado_actual = est
-                            break
-                    
-                    label_opcion = f"{nombre_e}  |  Estado actual: [{estado_actual}]"
-                    opciones_mod.append(label_opcion)
-                    mapa_registros[label_opcion] = reg
-                
+                mapa_opciones = {}
+
+                for e in estudiantes_curso:
+                    doc = e['documento']
+                    nombre = e['nombre']
+
+                    if doc in mapa_asistencia:
+                        reg = mapa_asistencia[doc]
+                        tema_full = str(reg['tema'])
+                        estado_actual = "Presente"
+                        for est in ESTADOS_ASISTENCIA:
+                            if f"[{est}]" in tema_full:
+                                estado_actual = est
+                                break
+                    else:
+                        estado_actual = "Ausente"
+                        reg = None
+
+                    lbl = f"{nombre}  |  Estado actual: [{estado_actual}]"
+                    opciones_mod.append(lbl)
+                    mapa_opciones[lbl] = {"estudiante": e, "registro": reg, "estado_actual": estado_actual}
+
                 est_seleccionado_lbl = st.selectbox("Seleccione el estudiante a corregir:", opciones_mod, key="sel_mod_est_tab")
-                reg_actual = mapa_registros[est_seleccionado_lbl]
-                
-                # Extraer tema base sin la etiqueta del estado anterior
-                tema_original = str(reg_actual['tema']).split(" [")[0].strip()
-                
-                st.markdown(f"📌 **Tema registrado originalmente:** *{tema_original}*")
-                
+                datos_sel = mapa_opciones[est_seleccionado_lbl]
+
+                tema_mod_input = st.text_input("Tema de la clase:", value=tema_original, placeholder="Ingrese el tema si no existían registros previo", key="tema_mod_input")
+
                 nuevo_estado = st.selectbox("Nuevo Estado a asignar:", ESTADOS_ASISTENCIA, key="sel_nuevo_est_tab")
-                
+
                 if st.button("💾 Guardar Cambio de Estado", type="primary", use_container_width=True):
-                    tema_actualizado = f"{tema_original} [{nuevo_estado}]" if nuevo_estado != "Presente" else tema_original
-                    
-                    supabase.table("asistencia").update({
-                        "tema": tema_actualizado
-                    }).eq("id", reg_actual['id']).execute()
-                    
-                    st.success(f"✅ Estado actualizado exitosamente a **{nuevo_estado}**.")
-                    time.sleep(1)
-                    st.rerun()
+                    if not tema_mod_input.strip():
+                        st.warning("Debe ingresar un tema de clase para registrar el cambio.")
+                    else:
+                        tema_base = tema_mod_input.strip()
+                        tema_guardar = f"{tema_base} [{nuevo_estado}]" if nuevo_estado != "Presente" else tema_base
+                        doc_est = datos_sel["estudiante"]["documento"]
+                        reg = datos_sel["registro"]
+
+                        if reg:
+                            supabase.table("asistencia").update({
+                                "tema": tema_guardar
+                            }).eq("id", reg['id']).execute()
+                        else:
+                            ahora_mod = dt.datetime.now() - dt.timedelta(hours=5)
+                            supabase.table("asistencia").insert({
+                                "estudiante_id": doc_est,
+                                "fecha": fecha_mod_str,
+                                "hora": ahora_mod.strftime("%H:%M:%S"),
+                                "grado": ga,
+                                "materia": ma,
+                                "tema": tema_guardar,
+                                "periodo": periodo_actual,
+                                "profe_id": st.session_state.user
+                            }).execute()
+
+                        st.success(f"✅ Estado de **{datos_sel['estudiante']['nombre']}** actualizado a **{nuevo_estado}**.")
+                        time.sleep(1)
+                        st.rerun()
             else:
-                st.warning(f"No hay registros de asistencia para **{ga} - {ma}** en la fecha **{fecha_mod_str}**.")
+                st.warning(f"No hay estudiantes matriculados en el grado **{ga}**.")
     else:
         st.error("No tienes cursos asignados. Por favor, crea un curso primero en la configuración.")
 
