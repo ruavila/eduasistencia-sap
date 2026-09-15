@@ -4,14 +4,12 @@ import qrcode
 import io
 import os
 import urllib.parse
-import random
 import tempfile
 import time
 import datetime as dt
 from datetime import datetime, timedelta
-from PIL import Image
 from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import landscape, legal, letter
+from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import cm
 from streamlit_qrcode_scanner import qrcode_scanner
 from fpdf import FPDF
@@ -19,7 +17,7 @@ from fpdf import FPDF
 # ==============================================================================
 # --- CONSTANTES GLOBALES ---
 APP_NAME = "EduAsistencia-Pro"
-APP_VERSION = "v2.1.0"
+APP_VERSION = "v2.2.0"
 DEVELOPER_NAME = "Rubén Darío Ávila Sandoval"
 IE_INITIALS = "I.E. S.A.P."
 COLEGIO = "Institución Educativa San Antonio de Padua"
@@ -77,7 +75,8 @@ if not st.session_state.logueado:
                 if res.data:
                     st.session_state.logueado, st.session_state.user, st.session_state.profe_nom = True, u_l, res.data[0]['nombre']
                     st.rerun()
-                else: st.error("Credenciales incorrectas.")
+                else: 
+                    st.error("Credenciales incorrectas.")
         
         with t2:
             nu = st.text_input("Definir Usuario ID")
@@ -95,8 +94,10 @@ if not st.session_state.logueado:
                             "pregunta_seguridad": preg, "respuesta_seguridad": resp.strip().lower()
                         }).execute()
                         st.success("Cuenta creada exitosamente.")
-                    except: st.error("El usuario ya existe.")
-                else: st.warning("Complete todos los campos.")
+                    except: 
+                        st.error("El usuario ya existe.")
+                else: 
+                    st.warning("Complete todos los campos.")
 
         with t3:
             st.markdown("### Recuperar Acceso")
@@ -111,13 +112,14 @@ if not st.session_state.logueado:
                         if r_int.strip().lower() == u_data[0]['respuesta_seguridad']:
                             supabase.table("usuarios").update({"password": hash_password(n_p)}).eq("usuario", ur).execute()
                             st.success("Contraseña actualizada.")
-                        else: st.error("Respuesta incorrecta.")
+                        else: 
+                            st.error("Respuesta incorrecta.")
     st.stop()
 
-# --- BARRA LATERAL (NAVEGACIÓN Y CERRAR SESIÓN) ---
+# --- BARRA LATERAL ---
 with st.sidebar:
     st.title("📌 Menú")
-    menu = st.radio("Navegación", ["📚 Cursos", "👤 Estudiantes", "📷 Scanner QR", "📊 Reportes", "⚙️ Reinicio"])
+    menu = st.radio("Navegación", ["📚 Cursos", "👤 Estudiantes", "📷 Scanner / Asistencia", "📊 Reportes", "⚙️ Reinicio"])
     st.markdown("---")
     if st.button("🚪 Cerrar Sesión", use_container_width=True, type="secondary"):
         st.session_state.logueado = False
@@ -264,9 +266,9 @@ elif menu == "👤 Estudiantes":
             st.success(f"Se generaron carnets para {len(df)} estudiantes en formato Carta.")
             st.download_button("📥 Descargar Carnets", pdf.getvalue(), f"Carnets_{gs}.pdf")
 
-# --- 3. SCANNER QR Y LISTA MANUAL ---
-elif menu == "📷 Scanner QR":
-    st.subheader("Captura de Asistencia por Periodo")
+# --- 3. SCANNER QR, LISTA MANUAL Y MODIFICACIÓN ---
+elif menu == "📷 Scanner / Asistencia":
+    st.subheader("Captura y Gestión de Asistencia por Periodo")
     
     if 'captura_finalizada' not in st.session_state:
         st.session_state.captura_finalizada = False
@@ -293,14 +295,14 @@ elif menu == "📷 Scanner QR":
         with col_c2:
             periodo_actual = st.number_input("Periodo Actual:", min_value=1, max_value=4, value=1, step=1, key="num_periodo")
         
-        tema_input = st.text_input("Tema de la clase:", placeholder="Ej: Introducción a la Multimedia")
-        tema = tema_input.strip() 
+        tab_qr, tab_lista, tab_editar = st.tabs(["📷 Escáner QR", "🔢 Lista Manual", "✏️ Modificar Fechas Anteriores"])
         
-        if tema:
-            tab_qr, tab_lista = st.tabs(["📷 Escáner QR", "🔢 Lista Manual"])
-            
-            # --- TAB 1: ESCÁNER QR ---
-            with tab_qr:
+        # --- TAB 1: ESCÁNER QR ---
+        with tab_qr:
+            tema_input = st.text_input("Tema de la clase:", placeholder="Ej: Introducción a la Multimedia", key="tema_qr")
+            tema = tema_input.strip() 
+
+            if tema:
                 if not st.session_state.captura_finalizada:
                     st.info(f"📋 **{ga} - {ma}** | Periodo: **{periodo_actual}** | Tema: *{tema}*")
                     
@@ -390,7 +392,6 @@ elif menu == "📷 Scanner QR":
                     for r in asistieron_raw:
                         est_id = str(r.get('estudiante_id', '')).strip()
                         tema_r = str(r.get('tema', '')).strip()
-                        # Excluir de ausentes a quienes tienen Presente, Excusas o Permisos
                         if not ("[Ausente]" in tema_r):
                             registros_excluidos.add(est_id)
 
@@ -420,18 +421,23 @@ elif menu == "📷 Scanner QR":
                             col_b.markdown(f"[📲 Notificar]({link_wa})")
                     else:
                         st.success("🎉 ¡No hay reportes de inasistencia pendientes hoy!")
+            else:
+                st.info("Por favor ingresa el **Tema de la clase** arriba para activar la lectura QR.")
 
-            # --- TAB 2: LISTA MANUAL ---
-            with tab_lista:
-                st.info(f"Registro Manual para {ga} - {ma} | Periodo: {periodo_actual}")
-                
-                col_f1, col_f2 = st.columns([1, 1])
-                with col_f1:
-                    fecha_sel = st.date_input("Fecha de Registro:", value=datetime.now())
-                    hoy_m = fecha_sel.strftime("%Y-%m-%d")
-                with col_f2:
-                    estado_sel = st.selectbox("Estado del Registro:", ESTADOS_ASISTENCIA, index=0)
-                
+        # --- TAB 2: LISTA MANUAL ---
+        with tab_lista:
+            st.info(f"Registro Manual para **{ga} - {ma}** | Periodo: **{periodo_actual}**")
+            
+            tema_manual = st.text_input("Tema de la clase:", placeholder="Ej: Introducción a la Multimedia", key="tema_manual").strip()
+            
+            col_f1, col_f2 = st.columns([1, 1])
+            with col_f1:
+                fecha_sel = st.date_input("Fecha de Registro:", value=datetime.now())
+                hoy_m = fecha_sel.strftime("%Y-%m-%d")
+            with col_f2:
+                estado_sel = st.selectbox("Estado del Registro:", ESTADOS_ASISTENCIA, index=0)
+            
+            if tema_manual:
                 todos_est = supabase.table("estudiantes").select("documento, nombre, grado")\
                     .eq("profe_id", st.session_state.user).execute().data
                 
@@ -471,8 +477,7 @@ elif menu == "📷 Scanner QR":
                             .eq("materia", ma)\
                             .eq("periodo", periodo_actual).execute().data
                         
-                        # Almacenar el estado dentro del campo tema de forma segura
-                        tema_guardar = f"{tema} [{estado_sel}]" if estado_sel != "Presente" else tema
+                        tema_guardar = f"{tema_manual} [{estado_sel}]" if estado_sel != "Presente" else tema_manual
                         
                         payload_manual = {
                             "estudiante_id": doc_m, 
@@ -493,6 +498,73 @@ elif menu == "📷 Scanner QR":
                             st.warning(f"El estudiante {nom_m} ya cuenta con registro para la fecha {hoy_m}.")
                 else:
                     st.warning(f"No se encontraron estudiantes registrados para el grado {ga}.")
+            else:
+                st.info("Ingresa el tema de la clase antes de continuar.")
+
+        # --- TAB 3: MODIFICAR FECHAS ANTERIORES ---
+        with tab_editar:
+            st.info(f"Edición / Corrección de Asistencia para **{ga} - {ma}** (Periodo {periodo_actual})")
+            
+            fecha_mod = st.date_input("Seleccione la Fecha a Modificar:", value=datetime.now(), key="f_mod_tab")
+            fecha_mod_str = fecha_mod.strftime("%Y-%m-%d")
+            
+            # Consultar registros existentes para la fecha seleccionada
+            registros_existentes = supabase.table("asistencia").select("id, estudiante_id, tema, hora")\
+                .eq("grado", ga)\
+                .eq("materia", ma)\
+                .eq("periodo", periodo_actual)\
+                .eq("fecha", fecha_mod_str)\
+                .eq("profe_id", st.session_state.user).execute().data
+                
+            if registros_existentes:
+                ids_registrados = [r['estudiante_id'] for r in registros_existentes]
+                
+                estudiantes_info = supabase.table("estudiantes").select("documento, nombre")\
+                    .in_("documento", ids_registrados).execute().data
+                    
+                mapa_nombres = {e['documento']: e['nombre'] for e in estudiantes_info}
+                
+                opciones_mod = []
+                mapa_registros = {}
+                
+                for reg in registros_existentes:
+                    doc_e = reg['estudiante_id']
+                    nombre_e = mapa_nombres.get(doc_e, doc_e)
+                    tema_full = str(reg['tema'])
+                    
+                    # Detectar el estado actual alojado en el tema
+                    estado_actual = "Presente"
+                    for est in ESTADOS_ASISTENCIA:
+                        if f"[{est}]" in tema_full:
+                            estado_actual = est
+                            break
+                    
+                    label_opcion = f"{nombre_e}  |  Estado actual: [{estado_actual}]"
+                    opciones_mod.append(label_opcion)
+                    mapa_registros[label_opcion] = reg
+                
+                est_seleccionado_lbl = st.selectbox("Seleccione el estudiante a corregir:", opciones_mod, key="sel_mod_est_tab")
+                reg_actual = mapa_registros[est_seleccionado_lbl]
+                
+                # Extraer tema base sin la etiqueta del estado anterior
+                tema_original = str(reg_actual['tema']).split(" [")[0].strip()
+                
+                st.markdown(f"📌 **Tema registrado originalmente:** *{tema_original}*")
+                
+                nuevo_estado = st.selectbox("Nuevo Estado a asignar:", ESTADOS_ASISTENCIA, key="sel_nuevo_est_tab")
+                
+                if st.button("💾 Guardar Cambio de Estado", type="primary", use_container_width=True):
+                    tema_actualizado = f"{tema_original} [{nuevo_estado}]" if nuevo_estado != "Presente" else tema_original
+                    
+                    supabase.table("asistencia").update({
+                        "tema": tema_actualizado
+                    }).eq("id", reg_actual['id']).execute()
+                    
+                    st.success(f"✅ Estado actualizado exitosamente a **{nuevo_estado}**.")
+                    time.sleep(1)
+                    st.rerun()
+            else:
+                st.warning(f"No hay registros de asistencia para **{ga} - {ma}** en la fecha **{fecha_mod_str}**.")
     else:
         st.error("No tienes cursos asignados. Por favor, crea un curso primero en la configuración.")
 
@@ -546,7 +618,6 @@ elif menu == "📊 Reportes":
                 except: pass
                 df_reporte = df_reporte.set_index('documento')
                 
-                # Limpiar temas para agrupar las columnas del reporte sin la etiqueta del estado
                 df_asistencia = pd.DataFrame(asistencia_data)
                 df_asistencia['tema_limpio'] = df_asistencia['tema'].apply(lambda x: x.split(" [")[0].strip() if " [" in str(x) else str(x).strip())
                 
