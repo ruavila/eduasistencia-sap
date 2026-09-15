@@ -120,24 +120,6 @@ with col_txt:
     st.markdown(f"<h2 style='margin:0;'>{COLEGIO}</h2>", unsafe_allow_html=True)
     st.markdown(f"<p style='margin:0; color:#4F8BF9;'><b>{APP_NAME}</b> | Docente: {st.session_state.profe_nom}</p>", unsafe_allow_html=True)
 st.divider()
-ahora_m = dt.datetime.now() - dt.timedelta(hours=5)
-hoy_m = ahora_m.strftime("%Y-%m-%d")
-
-# 1. Consultas rápidas a Supabase
-asist_hoy = supabase.table("asistencia").select("id, estudiante_id, grado")\
-    .eq("fecha", hoy_m).eq("profe_id", st.session_state.user).execute().data
-
-# 2. Renderizado de las tarjetas visuales
-m1, m2, m3 = st.columns(3)
-with m1:
-    st.metric(label="📋 Registros de Hoy", value=len(asist_hoy))
-with m2:
-    # Cuenta ausentes si la clase ya finalizó
-    st.metric(label="👥 Clases Atendidas", value=len(set(a['grado'] for a in asist_hoy)))
-with m3:
-    st.metric(label="🟢 Estado del Sistema", value="Activo")
-
-st.divider()
 menu = st.sidebar.radio("Navegación", ["📚 Cursos", "👤 Estudiantes", "📷 Scanner QR", "📊 Reportes", "⚙️ Reinicio"])
 
 # --- 1. CURSOS ---
