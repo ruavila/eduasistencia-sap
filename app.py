@@ -6,20 +6,23 @@ import os
 import urllib.parse
 import random
 import tempfile
-from datetime import datetime
+import time
+import datetime as dt
+from datetime import datetime, timedelta
 from PIL import Image
 from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import landscape, legal
+from reportlab.lib.pagesizes import landscape, legal, letter
 from reportlab.lib.units import cm
 from streamlit_qrcode_scanner import qrcode_scanner
+from fpdf import FPDF
 
 # ==============================================================================
-# --- CONSTANTES GLOBALES (Mover al inicio del archivo) ---
+# --- CONSTANTES GLOBALES ---
 APP_NAME = "EduAsistencia-Pro"
 APP_VERSION = "v2.1.0"
-DEVELOPER_NAME = "Rubén Darío Ávila Sandoval" # <-- Pon tu nombre aquí
+DEVELOPER_NAME = "Rubén Darío Ávila Sandoval"
 IE_INITIALS = "I.E. S.A.P."
-COLEGIO = "Institución Educativa San Antonio de Padua" # Valor por defecto
+COLEGIO = "Institución Educativa San Antonio de Padua"
 # ==============================================================================
 
 # --- INTEGRACIÓN CON MÓDULOS ---
@@ -30,7 +33,6 @@ except Exception as e:
     st.error(f"Error al cargar módulos: {e}")
     APP_NAME = "EduAsistencia-Pro"
     COLEGIO = "Institución Educativa San Antonio de Padua"
-    # Ruta al escudo en la carpeta assets
     ESCUDO_PATH = os.path.join("assets", "escudo.png") 
 
 IE_INITIALS = "I.E. S.A.P."
@@ -53,7 +55,6 @@ if not st.session_state.logueado:
                 st.image(ESCUDO_PATH, width=80)
         with c2:
             st.markdown(f"### {COLEGIO}")
-            # Insertamos nombre de la app, versión y desarrollador aquí
             st.markdown(
                 f"""
                 <h1 style='margin:0;'>{APP_NAME}</h1>
@@ -119,7 +120,36 @@ with col_esc:
 with col_txt:
     st.markdown(f"<h2 style='margin:0;'>{COLEGIO}</h2>", unsafe_allow_html=True)
     st.markdown(f"<p style='margin:0; color:#4F8BF9;'><b>{APP_NAME}</b> | Docente: {st.session_state.profe_nom}</p>", unsafe_allow_html=True)
+
+# ==============================================================================
+# --- MEJORA 1: RESUMEN DE MÉTRICAS EN EL DASHBOARD PRINCIPAL ---
+# ==============================================================================
+try:
+    ahora_m_dash = datetime.now() - timedelta(hours=5)
+    hoy_m_dash = ahora_m_dash.strftime("%Y-%m-%d")
+
+    asist_hoy = (
+        supabase.table("asistencia")
+        .select("id, estudiante_id, grado")
+        .eq("fecha", hoy_m_dash)
+        .eq("profe_id", st.session_state.user)
+        .execute()
+        .data
+    )
+
+    m1, m2, m3 = st.columns(3)
+    with m1:
+        st.metric(label="📋 Registros de Asistencia Hoy", value=len(asist_hoy))
+    with m2:
+        clases_atendidas = len(set(a["grado"] for a in asist_hoy)) if asist_hoy else 0
+        st.metric(label="👥 Cursos Atendidos Hoy", value=clases_atendidas)
+    with m3:
+        st.metric(label="🟢 Estado del Sistema", value="Conectado")
+except Exception as e:
+    st.caption("Cargando métricas del día...")
+
 st.divider()
+
 menu = st.sidebar.radio("Navegación", ["📚 Cursos", "👤 Estudiantes", "📷 Scanner QR", "📊 Reportes", "⚙️ Reinicio"])
 
 # --- 1. CURSOS ---
@@ -136,8 +166,6 @@ if menu == "📚 Cursos":
     res_c = supabase.table("cursos").select("*").eq("profe_id", st.session_state.user).execute()
     if res_c.data:
         df_c = pd.DataFrame(res_c.data)
-        
-        # --- ORDENAMIENTO ASCENDENTE POR GRADO ---
         df_c = df_c.sort_values(by="grado", ascending=True)
         
         for _, r in df_c.iterrows():
@@ -147,21 +175,15 @@ if menu == "📚 Cursos":
                 supabase.table("cursos").delete().eq("id", r['id']).execute()
                 st.rerun()
 
-# --- 2. ESTUDIANTES Y CARNETS (VERSIÓN CORREGIDA DE QR Y ARCHIVOS TEMPORALES) ---
+# --- 2. ESTUDIANTES Y CARNETS ---
 elif menu == "👤 Estudiantes":
     st.subheader("Carga de Estudiantes y Carnetización")
-    
-    from reportlab.lib.pagesizes import letter 
-    import tempfile
     import uuid
-    import os
 
     cursos = supabase.table("cursos").select("grado, materia").eq("profe_id", st.session_state.user).execute().data
     if cursos:
-        # --- LÍNEA CORREGIDA CON sorted() ---
         opciones_cursos = sorted([f"{r['grado']} | {r['materia']}" for r in cursos])
         sel = st.selectbox("Curso:", opciones_cursos)
-        # ------------------------------------
         
         gs, ms = sel.split(" | ")
         f = st.file_uploader("Subir Excel", type=["xlsx"])
@@ -172,27 +194,21 @@ elif menu == "👤 Estudiantes":
             
             pdf = io.BytesIO()
             canv = canvas.Canvas(pdf, pagesize=letter)
-            ancho_pg, alto_pg = letter # 21.59cm x 27.94cm
+            ancho_pg, alto_pg = letter
             
-            # Ajuste de márgenes iniciales
             x, y, col = 1.5*cm, alto_pg - 5*cm, 0
             
             for index, r in df.iterrows():
-                # 1. Extracción de ID base del Excel
                 id_base = str(r.get('estudiante_id', r.get('documento', r.get('id', '')))).split('.')[0].strip()
                 
-                # Asignación de ID único anteponiendo el grado si existe o generando UUID si está vacío
                 if not id_base or id_base.lower() in ['nan', 'none', '']:
                     e_id = f"EST-{uuid.uuid4().hex[:8].upper()}"
                 else:
-                    # 🔒 COMBINACIÓN ÚNICA: Antepone el grado (Ejemplo: "605-1", "805-1") para evitar duplicados entre cursos
                     e_id = f"{gs.replace(' ', '')}-{id_base}"
                 
-                # 2. Extracción de Nombre y WhatsApp
                 e_nm = str(r.get('nombre', '')).upper().strip()
                 e_ws = "".join(filter(str.isdigit, str(r.get('whatsapp', '')))).split('.')[0]
                 
-                # 3. Registro / Actualización en Supabase con el ID único por grado
                 supabase.table("estudiantes").upsert({
                     "documento": e_id, 
                     "nombre": e_nm, 
@@ -200,9 +216,8 @@ elif menu == "👤 Estudiantes":
                     "grado": gs, 
                     "materia": ms, 
                     "profe_id": st.session_state.user
-                },on_conflict="documento").execute()
+                }, on_conflict="documento").execute()
                 
-                # 3. Generación de QR con Instancia Limpia por Estudiante
                 qr_engine = qrcode.QRCode(
                     version=1, 
                     error_correction=qrcode.constants.ERROR_CORRECT_H, 
@@ -213,35 +228,28 @@ elif menu == "👤 Estudiantes":
                 qr_engine.make(fit=True)
                 img_qr = qr_engine.make_image(fill_color="black", back_color="white")
                 
-                # 4. Guardado en ruta temporal única sin bloqueo de archivo
                 tmp_filename = f"qr_{gs}_{index}_{e_id}.png".replace("/", "_").replace("\\", "_")
                 tmp_qr_path = os.path.join(tempfile.gettempdir(), tmp_filename)
                 img_qr.save(tmp_qr_path)
 
-                # 5. Dibujar imagen y textos en el PDF
                 canv.drawInlineImage(tmp_qr_path, x, y, 4*cm, 4*cm)
                 canv.setFont("Helvetica-Bold", 7)
                 canv.drawCentredString(x + 2*cm, y - 0.4*cm, e_nm[:25])
                 canv.setFont("Helvetica", 6)
                 canv.drawCentredString(x + 2*cm, y - 0.8*cm, f"Grado: {gs} - {IE_INITIALS}")
                 
-                # 6. Eliminar inmediatamente la imagen del disco
                 if os.path.exists(tmp_qr_path):
-                    try:
-                        os.remove(tmp_qr_path)
-                    except Exception:
-                        pass
+                    try: os.remove(tmp_qr_path)
+                    except: pass
                 
-                # 7. Lógica de cuadrícula para Hoja Carta Vertical
                 col += 1
-                if col >= 3: # 3 carnets por fila
+                if col >= 3:
                     x = 1.5*cm
                     y -= 6.0*cm
                     col = 0
                 else: 
                     x += 6.5*cm
                 
-                # Salto de página
                 if y < 2*cm: 
                     canv.showPage()
                     x, y, col = 1.5*cm, alto_pg - 5*cm, 0
@@ -249,27 +257,20 @@ elif menu == "👤 Estudiantes":
             canv.save()
             st.success(f"Se generaron carnets para {len(df)} estudiantes en formato Carta.")
             st.download_button("📥 Descargar Carnets", pdf.getvalue(), f"Carnets_{gs}.pdf")
-# ==============================================================================
-# --- 3. SCANNER QR Y LISTA MANUAL ---
- # ==============================================================================
-elif menu == "📷 Scanner QR":
-    import time
-    import datetime as dt
-    import urllib.parse
 
+# --- 3. SCANNER QR Y LISTA MANUAL ---
+elif menu == "📷 Scanner QR":
     st.subheader("Captura de Asistencia por Periodo")
     
-    # 1. Control de estado de la toma de asistencia
     if 'captura_finalizada' not in st.session_state:
         st.session_state.captura_finalizada = False
 
     cursos = supabase.table("cursos").select("grado, materia").eq("profe_id", st.session_state.user).execute().data
     
     if cursos:
-        # Botón para cerrar llamado a lista activo y cambiar de curso
         col_tit, col_btn_cerrar = st.columns([3, 1])
         with col_btn_cerrar:
-            if st.button("🔴 Cerrar Clase", use_container_width=True, help="Limpia la selección actual para iniciar llamado en otro curso"):
+            if st.button("🔴 Cerrar Clase", use_container_width=True, help="Limpia la selección actual"):
                 if 'captura_finalizada' in st.session_state:
                     st.session_state.captura_finalizada = False
                 if 'sel_curso_scan' in st.session_state:
@@ -290,7 +291,7 @@ elif menu == "📷 Scanner QR":
         tema = tema_input.strip() 
         
         if tema:
-            tab_qr, tab_lista = st.tabs(["📷 Escáner QR", "🔢 Número de Lista"])
+            tab_qr, tab_lista = st.tabs(["📷 Escáner QR", "🔢 Lista Manual"])
             
             # --- TAB 1: ESCÁNER QR ---
             with tab_qr:
@@ -305,8 +306,6 @@ elif menu == "📷 Scanner QR":
                     
                     if cod:
                         id_cl = str(cod).strip()
-                        
-                        # Búsqueda directa del estudiante por documento y grado exacto
                         res = supabase.table("estudiantes").select("documento, nombre, grado")\
                             .eq("documento", id_cl)\
                             .eq("grado", ga)\
@@ -335,6 +334,7 @@ elif menu == "📷 Scanner QR":
                                         "materia": ma, 
                                         "tema": tema, 
                                         "periodo": periodo_actual,
+                                        "estado": "Presente",
                                         "profe_id": st.session_state.user
                                     }).execute()
                                     
@@ -363,12 +363,10 @@ elif menu == "📷 Scanner QR":
                     
                     saludo = "*Buenos días*" if ahora_col.hour < 12 else ("*Buenas tardes*" if ahora_col.hour < 18 else "*Buenas noches*")
                     
-                    # 1. Consulta FILTRADA DIRECTAMENTE en Supabase por grado exacto
                     todos_est = supabase.table("estudiantes").select("documento, nombre, whatsapp, grado")\
                         .eq("profe_id", st.session_state.user)\
                         .eq("grado", ga).execute().data
                     
-                    # Desduplicación por nombre
                     estudiantes_unicos = {}
                     for e in todos_est:
                         nom_clean = str(e.get('nombre', '')).strip().upper()
@@ -377,20 +375,26 @@ elif menu == "📷 Scanner QR":
                     
                     estudiantes_curso = sorted(list(estudiantes_unicos.values()), key=lambda x: x['nombre'])
                     
-                    # 2. Consultar ASISTENCIAS registradas hoy
-                    asistieron = supabase.table("asistencia").select("estudiante_id")\
+                    # ==========================================================
+                    # --- MEJORA 3: FILTRAR AUSENTES EXCLUYENDO EXCUSAS Y PERMISOS ---
+                    # ==========================================================
+                    asistieron = supabase.table("asistencia").select("estudiante_id, estado")\
                         .eq("grado", ga)\
                         .eq("materia", ma)\
                         .eq("fecha", hoy_col)\
                         .eq("periodo", periodo_actual).execute().data
                     
-                    ids_asistieron = set(str(a['estudiante_id']).strip() for a in asistieron if a.get('estudiante_id') is not None)
+                    # Excluye del reporte de WhatsApp a los presentes, justificantes o permisos
+                    ids_excluidos = set(
+                        str(a['estudiante_id']).strip() 
+                        for a in asistieron 
+                        if a.get('estudiante_id') is not None and a.get('estado') in ['Presente', 'Excusa Médica', 'Permiso Institucional']
+                    )
                     
-                    # 3. Filtrar ausentes
-                    ausentes = [e for e in estudiantes_curso if str(e['documento']).strip() not in ids_asistieron]
+                    ausentes = [e for e in estudiantes_curso if str(e['documento']).strip() not in ids_excluidos]
                     
                     if ausentes:
-                        st.write(f"Total ausentes: **{len(ausentes)}** de **{len(estudiantes_curso)}** matriculados.")
+                        st.write(f"Total ausentes sin justificar: **{len(ausentes)}** de **{len(estudiantes_curso)}** matriculados.")
                         
                         for aus in ausentes:
                             col_a, col_b = st.columns([3, 1])
@@ -412,20 +416,30 @@ elif menu == "📷 Scanner QR":
                             link_wa = f"https://wa.me/57{num_wa}?text={msg_encoded}"
                             col_b.markdown(f"[📲 Notificar]({link_wa})")
                     else:
-                        st.success("🎉 ¡Asistencia completa! No se reportan ausentes hoy.")
+                        st.success("🎉 ¡No hay reportes de inasistencia pendientes por notificar hoy!")
 
             # --- TAB 2: LISTA MANUAL ---
             with tab_lista:
                 st.info(f"Registro Manual para {ga} - {ma} | Periodo: {periodo_actual}")
                 
-                # 1. Traer todos los estudiantes del profesor
+                # ==========================================================
+                # --- MEJORA 2: FILTRO DE FECHA PASADA Y SELECCIÓN DE ESTADO ---
+                # ==========================================================
+                col_f1, col_f2 = st.columns([1, 1])
+                with col_f1:
+                    fecha_sel = st.date_input("Fecha de Registro:", value=datetime.now())
+                    hoy_m = fecha_sel.strftime("%Y-%m-%d")
+                
+                with col_f2:
+                    estado_asist = st.selectbox(
+                        "Estado de Asistencia:", 
+                        ["Presente", "Ausente", "Excusa Médica", "Permiso Institucional", "Llegada Tardía"]
+                    )
+                
                 todos_est = supabase.table("estudiantes").select("documento, nombre, grado")\
                     .eq("profe_id", st.session_state.user).execute().data
                 
-                # 2. Filtro estricto: Comparar texto exacto eliminando espacios en bordes
-                # Si ga es "Grado 605" o "605", busca coincidencia exacta con lo registrado
                 ga_limpio = str(ga).strip().lower()
-                
                 estudiantes_curso = []
                 vistos = set()
                 
@@ -433,12 +447,9 @@ elif menu == "📷 Scanner QR":
                     g_est = str(e.get('grado', '')).strip().lower()
                     nom_est = str(e.get('nombre', '')).strip().upper()
                     
-                    # Condición de pertenencia única al grado seleccionado
                     if (g_est == ga_limpio or ga_limpio in g_est) and nom_est not in vistos:
-                        # Descarte explícito: Si el grado seleccionado es 605, bloquea cualquier registro que tenga '701'
                         if "605" in ga_limpio and "701" in g_est:
                             continue
-                        
                         vistos.add(nom_est)
                         estudiantes_curso.append(e)
                 
@@ -456,9 +467,7 @@ elif menu == "📷 Scanner QR":
                     if st.button("✅ Registrar Asistencia Manual", use_container_width=True):
                         est_sel = estudiantes_curso[idx_seleccionado]
                         doc_m, nom_m = str(est_sel['documento']).strip(), est_sel['nombre']
-                        
                         ahora_m = dt.datetime.now() - dt.timedelta(hours=5)
-                        hoy_m = ahora_m.strftime("%Y-%m-%d")
                         
                         check_m = supabase.table("asistencia").select("id")\
                             .eq("estudiante_id", doc_m)\
@@ -475,122 +484,86 @@ elif menu == "📷 Scanner QR":
                                 "materia": ma, 
                                 "tema": tema, 
                                 "periodo": periodo_actual,
+                                "estado": estado_asist,
                                 "profe_id": st.session_state.user
                             }).execute()
-                            st.success(f"Asistencia marcada correctamente para: {nom_m}")
+                            st.success(f"Asistencia ({estado_asist}) marcada correctamente para: {nom_m} en la fecha {hoy_m}")
                             st.rerun()
                         else:
-                            st.warning(f"El estudiante {nom_m} ya cuenta con registro de asistencia para hoy.")
+                            st.warning(f"El estudiante {nom_m} ya cuenta con registro de asistencia para la fecha {hoy_m}.")
                 else:
                     st.warning(f"No se encontraron estudiantes registrados para el grado {ga}.")
     else:
         st.error("No tienes cursos asignados. Por favor, crea un curso primero en la configuración.")
-   
 
-    
-# --- 4. SECCIÓN DE REPORTES (PDF DETALLADO POR PERIODO - FORMATO INSTITUCIONAL) ---
+# --- 4. SECCIÓN DE REPORTES ---
 elif menu == "📊 Reportes":
-    # Importaciones necesarias para esta sección (asegúrate de tener fpdf2, pandas, datetime, io, os instalados)
-    from fpdf import FPDF
-    import pandas as pd
-    import datetime as dt
-    import io
-    import os
-
-    # Función auxiliar para formatear la fecha a DD-MM (para el PDF)
     def formatear_fecha_reporte(fecha_str):
-        """Convierte una fecha YYYY-MM-DD a formato DD-MM."""
         if not fecha_str: return ""
         try:
             fecha_obj = dt.datetime.strptime(fecha_str, "%Y-%m-%d")
-            return fecha_obj.strftime("%d-%m") # Solo día y mes
+            return fecha_obj.strftime("%d-%m")
         except ValueError:
             return fecha_str
 
     st.subheader("Generación de Reportes Detallados por Periodo (PDF)")
 
-    # 1. Consulta de cursos vinculados al docente
     cursos = supabase.table("cursos").select("grado, materia").eq("profe_id", st.session_state.user).execute().data
 
     if cursos:
-        # --- INTERFAZ DE FILTROS ACTUALIZADA ---
         col_r1, col_r2, col_r3 = st.columns([2, 1, 1])
 
         with col_r1:
-            # --- LÍNEA CORREGIDA CON sorted() ---
             opciones_cursos_rep = sorted([f"{r['grado']} | {r['materia']}" for r in cursos])
             sel_as_rep = st.selectbox("Seleccione el Curso:", opciones_cursos_rep, key="sel_curso_rep")
-            # ------------------------------------
             ga_rep, ma_rep = sel_as_rep.split(" | ")
 
         with col_r2:
-            # Selección obligatoria del Periodo
             periodo_rep = st.number_input("Filtrar por Periodo Académico:", min_value=1, max_value=4, value=1, step=1, key="num_periodo_rep")
 
         with col_r3:
-            st.write("") # Espaciadores
+            st.write("")
             st.write("")
             btn_generar = st.button("📊 Generar Reporte PDF", type="primary", use_container_width=True)
 
-        # 2. Lógica al presionar el botón (Generar PDF Directo)
         if btn_generar:
             with st.spinner(f"Generando sábana detallada de {ga_rep} ({ma_rep}) - Periodo {periodo_rep}..."):
-                # --- CONSULTAS A SUPABASE CON FILTRO DE PERIODO ---
-                
-                # A. Traer todos los estudiantes de ese grado (docente)
                 todos_est = supabase.table("estudiantes").select("documento, nombre")\
                     .eq("grado", ga_rep)\
                     .eq("profe_id", st.session_state.user).order("nombre").execute().data
 
-                # B. Traer registros de asistencia de ese curso Y PERIODO
-                asistencia_data = supabase.table("asistencia").select("estudiante_id, fecha, tema")\
+                asistencia_data = supabase.table("asistencia").select("estudiante_id, fecha, tema, estado")\
                     .eq("grado", ga_rep)\
                     .eq("materia", ma_rep)\
                     .eq("periodo", periodo_rep)\
                     .eq("profe_id", st.session_state.user).order("fecha").execute().data
 
             if todos_est and asistencia_data:
-                # ==========================================================
-                # --- PROCESAMIENTO DE DATOS CON PANDAS (SÁBANA DETALLADA) ---
-                # ==========================================================
-                # Crear DataFrame base con todos los estudiantes (mayúsculas y latin-1)
                 df_reporte = pd.DataFrame(todos_est)
                 df_reporte['nombre'] = df_reporte['nombre'].str.upper()
                 try:
-                    # Forzar latin-1 para compatibilidad si hay acentos
                     df_reporte['nombre'] = df_reporte['nombre'].str.encode('latin-1', 'ignore').str.decode('latin-1')
-                except:
-                    pass
+                except: pass
                 df_reporte = df_reporte.set_index('documento')
                 
-                # Crear DataFrame con asistencias
                 df_asistencia = pd.DataFrame(asistencia_data)
-                
-                # Identificar clases únicas (Fecha/Tema) del periodo, ordenadas por fecha
                 df_clases = df_asistencia[['fecha', 'tema']].drop_duplicates().sort_values('fecha')
                 
-                # Construir columnas dinámicas (Tema + Fecha DD-MM)
                 columnas_dinamicas = []
-                # El DataFrame base de los estudiantes es nuestro 'reporte_final'
                 reporte_final = df_reporte.copy()
 
                 for _, clase in df_clases.iterrows():
-                    # REQUERIMIENTO: Solo día y mes (ej: 12-07)
                     fecha_fmt = formatear_fecha_reporte(clase['fecha'])
                     tema_raw = clase['tema']
                     try:
-                        # Forzar latin-1 para el tema también
                         tema_latin = tema_raw.encode('latin-1', 'ignore').decode('latin-1')
                         encabezado_col = f"{tema_latin}\n{fecha_fmt}"
                     except:
                         encabezado_col = f"{tema_raw}\n{fecha_fmt}"
                     
                     columnas_dinamicas.append(encabezado_col)
-                    # Inicializar columna dinámica con 'X' (Ausente) por defecto
                     reporte_final[encabezado_col] = 'X' 
 
-                # Llenar 'V' (Presente) y calcular totales
-                # El check V requiere codificación latin-1 específica para FPDF (código cuadrado aprox)
                 check_pi_latin = 'V'.encode('latin-1', 'ignore').decode('latin-1')
                 
                 for registro in asistencia_data:
@@ -598,6 +571,8 @@ elif menu == "📊 Reportes":
                     if id_est in reporte_final.index:
                         tema_reg = registro['tema']
                         fecha_fmt_reg = formatear_fecha_reporte(registro['fecha'])
+                        estado_reg = registro.get('estado', 'Presente')
+                        
                         try:
                             tema_latin_reg = tema_reg.encode('latin-1', 'ignore').decode('latin-1')
                             col_pi = f"{tema_latin_reg}\n{fecha_fmt_reg}"
@@ -605,58 +580,40 @@ elif menu == "📊 Reportes":
                             col_pi = f"{tema_reg}\n{fecha_fmt_reg}"
                         
                         if col_pi in reporte_final.columns:
-                            # Marcar presente con check corregido
-                            reporte_final.loc[id_est, col_pi] = check_pi_latin
+                            if estado_reg in ['Presente', 'Llegada Tardía']:
+                                reporte_final.loc[id_est, col_pi] = check_pi_latin
+                            elif estado_reg in ['Excusa Médica', 'Permiso Institucional']:
+                                reporte_final.loc[id_est, col_pi] = 'E'
 
-                # Calcular totales al final de cada fila
                 df_aux = reporte_final[columnas_dinamicas]
-                # Contar 'V' para Asistencias
                 reporte_final['Asist'] = (df_aux == check_pi_latin).sum(axis=1)
-                # Contar 'X' para Ausencias
                 reporte_final['Ausen.'] = (df_aux == 'X').sum(axis=1)
                 
-                # Asegurar que los totales sean cadenas para MultiCell del PDF
                 reporte_final['Asist'] = reporte_final['Asist'].astype(str)
                 reporte_final['Ausen.'] = reporte_final['Ausen.'].astype(str)
                 
-                # Limpiar DataFrame: Índice numérico, Nombre como columna 'ESTUDIANTE', añadir N°
                 reporte_final = reporte_final.reset_index()
                 reporte_final = reporte_final.rename(columns={'nombre': 'ESTUDIANTE'})
-                # Añadir columna de N° correlativo
                 reporte_final.insert(0, 'N°', range(1, 1 + len(reporte_final)))
-                # Convertir N° a string
                 reporte_final['N°'] = reporte_final['N°'].astype(str)
 
-                # ==========================================================
-                # --- GENERACIÓN DEL REPORTE PDF CON FPDF2 (FORMATO SÁBANA DETALLADA) ---
-                # ==========================================================
-                # Crear objeto PDF (Horizontal L, mm, Legal/Oficio)
                 pdf = FPDF('L', 'mm', 'Legal')
                 pdf.add_page()
-                # Márgenes ajustados para el tamaño Oficio
                 pdf.set_margins(10, 10, 10)
                 
-                # --- RESTAURADO: RUTA DEL ESCUDO EN CARPETA ASSETS ---
-                # Definir la ruta correcta de la imagen del escudo dentro de 'assets'
                 escudo_path = os.path.join("assets", "escudo.png")
                 if os.path.exists(escudo_path):
-                    # Colocar escudo (x, y, ancho_w, alto_h)
-                    pdf.image(escudo_path, 10, 8, 25, 25) # Escudo de 25x25mm
+                    pdf.image(escudo_path, 10, 8, 25, 25)
                 
-                # --- ENCABEZADO INSTITUCIONAL ---
-                # Institución (desplazada a la derecha si hay escudo)
                 pdf.set_font("Arial", 'B', 16)
                 if os.path.exists(escudo_path):
-                    pdf.set_x(40) # Mover a 40mm de la izquierda
+                    pdf.set_x(40)
                 
                 pdf.cell(0, 12, "Institución Educativa San Antonio de Padua", 0, 1, 'C')
-                
-                # Datos de la clase
                 pdf.set_font("Arial", '', 11)
                 if os.path.exists(escudo_path):
                     pdf.set_x(40)
                 
-                # Fila 1 (conservando tu modelo)
                 pdf.cell(100, 7, f"Materia: {ma_rep}", 0, 0)
                 pdf.cell(80, 7, f"Grado: {ga_rep}", 0, 0)
                 pdf.cell(0, 7, f"Docente: {st.session_state.profe_nom}", 0, 1)
@@ -664,133 +621,78 @@ elif menu == "📊 Reportes":
                 if os.path.exists(escudo_path):
                     pdf.set_x(40)
                 
-                # Fila 2 (Añadido el Periodo)
                 pdf.set_font("Arial", 'B', 11)
                 ahora_co = dt.datetime.now() - dt.timedelta(hours=5)
                 pdf.cell(100, 7, f"Fecha Reporte: {ahora_co.strftime('%d/%m/%Y')}", 0, 0)
-                # CRÍTICO: Indica qué periodo se está consultando
                 pdf.cell(0, 7, f"Periodo Académico Consultando: {periodo_rep}", 0, 1)
                 
-                pdf.ln(5) # Espacio antes de la tabla
+                pdf.ln(5)
 
-                # --- TABLA DE DATOS (CUADRÍCULA SÁBANA EN OFICIO) ---
-                # 1. DEFINIR ANCHOS DE COLUMNA (CRÍTICO para Horizontal en Oficio)
-                # Ancho disponible aprox 335mm (Legal horizontal 355.6mm con márgenes de 10mm)
                 num_clases = len(columnas_dinamicas)
-                
-                # Anchos fijos iniciales y finales (revisados para Oficio y fuente 9pt)
-                w_num = 12
-                w_est = 70  
-                w_totales = 18 
-                
-                # Calcular ancho dinámico para las clases
+                w_num, w_est, w_totales = 12, 70, 18 
                 ancho_usado_fijo = w_num + w_est + (w_totales * 2)
-                # El ancho disponible es de 335mm
                 ancho_disponible_dinamico = 335 - ancho_usado_fijo
                 
-                if num_clases > 0:
-                    w_clase = ancho_disponible_dinamico / num_clases
-                else:
-                    # Si no hay clases dadas, la tabla no se genera
-                    w_clase = ancho_disponible_dinamico
+                w_clase = (ancho_disponible_dinamico / num_clases) if num_clases > 0 else ancho_disponible_dinamico
 
-                # 2. ENCABEZADOS DE LA TABLA (DOS LÍNEAS CON MULTICELL)
-                # --- RESTAURADO: TAMAÑO DE FUENTE 9PT ---
                 pdf.set_font("Arial", 'B', 9)
-                pdf.set_fill_color(240, 240, 240) # Gris suave para encabezado
+                pdf.set_fill_color(240, 240, 240)
                 
-                # Fila 1 del encabezado (N°, ESTUDIANTE, Totales ocupan dos líneas)
-                # Usamos Cell con alto 14 para los fijos
                 pdf.cell(w_num, 14, "N°", 1, 0, 'C', 1) 
                 pdf.cell(w_est, 14, "ESTUDIANTE", 1, 0, 'C', 1)
                 
-                # Columnas Dinámicas (MultiCell para dos líneas alto 7mm cada una)
-                x_col = pdf.get_x()
-                y_col = pdf.get_y()
+                x_col, y_col = pdf.get_x(), pdf.get_y()
                 if num_clases > 0:
                     for enc_completo in columnas_dinamicas:
-                        # MultiCell para el tema (7mm alto cada línea = 14mm total)
                         pdf.multi_cell(w_clase, 7, enc_completo, 1, 'C', 1)
-                        
-                        # Regresar posición para la siguiente columna (X, Y inicial de encabezado)
                         x_col += w_clase
                         pdf.set_xy(x_col, y_col)
                 else:
                      pdf.cell(ancho_disponible_dinamico, 14, "Sin registros de asistencia en este periodo", 1, 0, 'C', 1)
 
-                # Columnas Fijas Finales (alto 14mm)
                 pdf.cell(w_totales, 14, "Asist", 1, 0, 'C', 1)
-                pdf.cell(w_totales, 14, "Ausen.", 1, 1, 'C', 1) # Salto de línea final
+                pdf.cell(w_totales, 14, "Ausen.", 1, 1, 'C', 1)
 
-                # 3. CONTENIDO DE LA TABLA (FILA POR ESTUDIANTE)
-                # --- RESTAURADO: TAMAÑO DE FUENTE 9PT ---
                 pdf.set_font("Arial", '', 9)
                 
-                # Iterar sobre las filas del DataFrame final
                 for _, fila in reporte_final.iterrows():
-                    # Fila por estudiante
                     pdf.cell(w_num, 8, fila['N°'], 1, 0, 'C')
-                    # Nombre ya está en latin-1
                     pdf.cell(w_est, 8, fila['ESTUDIANTE'], 1, 0)
                     
-                    # Iterar sobre las clases dinámicas (usando la lista que guardamos)
                     if num_clases > 0:
                         for col_din in columnas_dinamicas:
-                            # Símbolo Presente (✔ corregido latin-1) o Ausente (X)
-                            simbolo = fila[col_din]
-                            pdf.cell(w_clase, 8, simbolo, 1, 0, 'C')
+                            pdf.cell(w_clase, 8, fila[col_din], 1, 0, 'C')
                     else:
                         pdf.cell(ancho_disponible_dinamico, 8, "", 1, 0)
                         
-                    # Totales (ya están en string)
                     pdf.cell(w_totales, 8, fila['Asist'], 1, 0, 'C')
-                    pdf.cell(w_totales, 8, fila['Ausen.'], 1, 1, 'C') # Salto de línea
+                    pdf.cell(w_totales, 8, fila['Ausen.'], 1, 1, 'C')
                     
-                    # Salto de página automático si la tabla es muy larga
-                    # Ajuste de margen inferior para Oficio horizontal aprox 180mm
                     if pdf.get_y() > 180: 
                         pdf.add_page()
-                        # Re-imprimir encabezados
                         pdf.set_font("Arial", 'B', 9)
                         pdf.set_fill_color(240, 240, 240)
-                        # Re-imprimir N°, Estudiante, Totales (alto 14mm)
                         pdf.cell(w_num, 14, "N°", 1, 0, 'C', 1) 
                         pdf.cell(w_est, 14, "ESTUDIANTE", 1, 0, 'C', 1)
-                        # Clases Dinámicas (MultiCell)
                         if num_clases > 0:
-                            x_col_pg = pdf.get_x()
-                            y_col_pg = pdf.get_y()
+                            x_col_pg, y_col_pg = pdf.get_x(), pdf.get_y()
                             for enc_completo_pg in columnas_dinamicas:
                                 pdf.multi_cell(w_clase, 7, enc_completo_pg, 1, 'C', 1)
                                 x_col_pg += w_clase
                                 pdf.set_xy(x_col_pg, y_col_pg)
-                        # Totales Finales (alto 14mm)
                         pdf.cell(w_totales, 14, "Asist", 1, 0, 'C', 1)
                         pdf.cell(w_totales, 14, "Ausen.", 1, 1, 'C', 1)
-                        # Regresar a fuente normal 9pt
                         pdf.set_font("Arial", '', 9)
 
-                # ==========================================================
-                # --- PREPARACIÓN DEL PDF EN MEMORIA (SOLUCIÓN DEFINITIVA 'bytearray') ---
-                # ==========================================================
-                
-                # feedback visual
                 st.info(f"📉 Sábana detallada (P{periodo_rep} - OFICIO/9PT) generada correctamente para {ga_rep} - {ma_rep}.")
                 
-                # --- MANTENIDA: CORRECCIÓN CRÍTICA DE DESCARGA ---
-                # Con fpdf2 instalado, output(dest='S') ya devuelve directamente bytes (bytearray).
-                # Eliminamos la línea que intentaba codificar manualmente.
                 pdf_output_bytes = pdf.output(dest='S')
-                
-                # Convertir los bytes a un objeto BytesIO para Streamlit
                 pdf_file = io.BytesIO(pdf_output_bytes)
                 
-                # Botón de descarga DIRECTA (sin previsualización de nada)
-                # Actualizar el nombre del archivo indicando la fuente 9pt
                 st.download_button(
                     label="📥 Descargar Reporte PDF Detallado (Sábana OFICIO 9PT)",
                     data=pdf_file,
-                    file_name=f"Sabana_Asistencia_{ga_rep}_{ma_rep}_P{periodo_rep}_OFICIO_9PT_{ahora_co.strftime('%Y%M%d_%H%M')}.pdf",
+                    file_name=f"Sabana_Asistencia_{ga_rep}_{ma_rep}_P{periodo_rep}_OFICIO_9PT_{ahora_co.strftime('%Y%m%d_%H%M')}.pdf",
                     mime="application/pdf",
                     use_container_width=True
                 )
@@ -802,6 +704,7 @@ elif menu == "📊 Reportes":
 
     else:
         st.error("No tienes cursos creados. Ve a la sección de Configuración.")
+
 # --- 5. REINICIO Y PANEL ADMIN ---
 elif menu == "⚙️ Reinicio":
     st.subheader("Mantenimiento")
@@ -838,7 +741,6 @@ footer_html = f"""
 """
 st.markdown(footer_html, unsafe_allow_html=True)
 
-# El botón de cerrar sesión debe ir al final
 if st.session_state.logueado:
     if st.sidebar.button("Cerrar Sesión"):
         st.session_state.logueado = False
