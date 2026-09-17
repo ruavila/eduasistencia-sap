@@ -221,8 +221,8 @@ elif menu == "👤 Estudiantes":
                     "documento": e_id, 
                     "nombre": e_nm, 
                     "whatsapp": e_ws, 
-                    "grado": gs, 
-                    "materia": ms, 
+                    "grado": gs.strip(), 
+                    "materia": ms.strip(), 
                     "profe_id": st.session_state.user
                 }, on_conflict="documento").execute()
                 
@@ -378,6 +378,7 @@ elif menu == "📷 Scanner / Asistencia":
                     hora_msj = ahora_col.strftime("%I:%M %p")
                     saludo = "*Buenos días*" if ahora_col.hour < 12 else ("*Buenas tardes*" if ahora_col.hour < 18 else "*Buenas noches*")
                     
+                    # CORRECCIÓN: Filtro directo por grado
                     todos_est = supabase.table("estudiantes").select("documento, nombre, whatsapp, grado")\
                         .eq("profe_id", st.session_state.user)\
                         .eq("grado", ga).execute().data
@@ -441,20 +442,16 @@ elif menu == "📷 Scanner / Asistencia":
                 
                 estado_sel = st.selectbox("Estado del Registro:", ESTADOS_ASISTENCIA, index=0, key="sel_est_manual")
                 
+                # CORRECCIÓN: Filtrar directamente por el grado 'ga' en Supabase
                 todos_est = supabase.table("estudiantes").select("documento, nombre, grado")\
-                    .eq("profe_id", st.session_state.user).execute().data
+                    .eq("profe_id", st.session_state.user)\
+                    .eq("grado", ga).execute().data
                 
-                ga_limpio = str(ga).strip().lower()
-                estudiantes_curso = []
                 vistos = set()
-                
+                estudiantes_curso = []
                 for e in sorted(todos_est, key=lambda x: x['nombre']):
-                    g_est = str(e.get('grado', '')).strip().lower()
                     nom_est = str(e.get('nombre', '')).strip().upper()
-                    
-                    if (g_est == ga_limpio or ga_limpio in g_est) and nom_est not in vistos:
-                        if "605" in ga_limpio and "701" in g_est:
-                            continue
+                    if nom_est not in vistos:
                         vistos.add(nom_est)
                         estudiantes_curso.append(e)
                 
@@ -544,6 +541,7 @@ elif menu == "📷 Scanner / Asistencia":
 
                 st.markdown(f"📖 **Tema de la Clase Seleccionada:** *{tema_original}*")
 
+                # CORRECCIÓN: Filtrar por el grado específico
                 estudiantes_curso = supabase.table("estudiantes").select("documento, nombre")\
                     .eq("grado", ga)\
                     .eq("profe_id", st.session_state.user)\
@@ -642,7 +640,7 @@ elif menu == "📊 Reportes":
         with col_r1:
             opciones_cursos_rep = sorted([f"{r['grado']} | {r['materia']}" for r in cursos])
             sel_as_rep = st.selectbox("Seleccione el Curso:", opciones_cursos_rep, key="sel_curso_rep")
-            ga_rep, ma_rep = sel_as_rep.split(" | ")
+            ga_rep, ma_rep = [item.strip() for item in sel_as_rep.split(" | ")]
 
         with col_r2:
             periodo_rep = st.number_input("Filtrar por Periodo Académico:", min_value=1, max_value=4, value=1, step=1, key="num_periodo_rep")
@@ -654,6 +652,7 @@ elif menu == "📊 Reportes":
 
         if btn_generar:
             with st.spinner(f"Generando sábana detallada de {ga_rep} ({ma_rep}) - Periodo {periodo_rep}..."):
+                # CORRECCIÓN: Filtrar exclusivamente a los estudiantes del grado seleccionado
                 todos_est = supabase.table("estudiantes").select("documento, nombre")\
                     .eq("grado", ga_rep)\
                     .eq("profe_id", st.session_state.user).order("nombre").execute().data
@@ -664,7 +663,7 @@ elif menu == "📊 Reportes":
                     .eq("periodo", periodo_rep)\
                     .eq("profe_id", st.session_state.user).order("fecha").execute().data
 
-            if todos_est and asistencia_data:
+            if todos_est:
                 df_reporte = pd.DataFrame(todos_est)
                 df_reporte['nombre'] = df_reporte['nombre'].str.upper()
                 try:
@@ -672,59 +671,62 @@ elif menu == "📊 Reportes":
                 except: pass
                 df_reporte = df_reporte.set_index('documento')
                 
-                df_asistencia = pd.DataFrame(asistencia_data)
-                df_asistencia['tema_limpio'] = df_asistencia['tema'].apply(lambda x: x.split(" [")[0].strip() if " [" in str(x) else str(x).strip())
-                
-                df_clases = df_asistencia[['fecha', 'tema_limpio']].drop_duplicates().sort_values('fecha')
-                
                 columnas_dinamicas = []
                 reporte_final = df_reporte.copy()
 
-                for _, clase in df_clases.iterrows():
-                    fecha_fmt = formatear_fecha_reporte(clase['fecha'])
-                    tema_raw = clase['tema_limpio']
-                    try:
-                        tema_latin = tema_raw.encode('latin-1', 'ignore').decode('latin-1')
-                        encabezado_col = f"{tema_latin}\n{fecha_fmt}"
-                    except:
-                        encabezado_col = f"{tema_raw}\n{fecha_fmt}"
-                    
-                    columnas_dinamicas.append(encabezado_col)
-                    reporte_final[encabezado_col] = 'X' 
+                if asistencia_data:
+                    df_asistencia = pd.DataFrame(asistencia_data)
+                    df_asistencia['tema_limpio'] = df_asistencia['tema'].apply(lambda x: x.split(" [")[0].strip() if " [" in str(x) else str(x).strip())
+                    df_clases = df_asistencia[['fecha', 'tema_limpio']].drop_duplicates().sort_values('fecha')
 
-                check_pi_latin = 'V'.encode('latin-1', 'ignore').decode('latin-1')
-                
-                for registro in asistencia_data:
-                    id_est = registro['estudiante_id']
-                    if id_est in reporte_final.index:
-                        tema_full = str(registro['tema'])
-                        tema_reg = tema_full.split(" [")[0].strip() if " [" in tema_full else tema_full.strip()
-                        fecha_fmt_reg = formatear_fecha_reporte(registro['fecha'])
-                        
+                    for _, clase in df_clases.iterrows():
+                        fecha_fmt = formatear_fecha_reporte(clase['fecha'])
+                        tema_raw = clase['tema_limpio']
                         try:
-                            tema_latin_reg = tema_reg.encode('latin-1', 'ignore').decode('latin-1')
-                            col_pi = f"{tema_latin_reg}\n{fecha_fmt_reg}"
+                            tema_latin = tema_raw.encode('latin-1', 'ignore').decode('latin-1')
+                            encabezado_col = f"{tema_latin}\n{fecha_fmt}"
                         except:
-                            col_pi = f"{tema_reg}\n{fecha_fmt_reg}"
+                            encabezado_col = f"{tema_raw}\n{fecha_fmt}"
                         
-                        if col_pi in reporte_final.columns:
-                            if "[Excusa Médica]" in tema_full:
-                                val_marcar = 'E'
-                            elif "[Permiso Institucional]" in tema_full:
-                                val_marcar = 'P'
-                            elif "[Llegada Tardía]" in tema_full:
-                                val_marcar = 'T'
-                            elif "[Ausente]" in tema_full:
-                                val_marcar = 'X'
-                            else:
-                                val_marcar = check_pi_latin
-                                
-                            reporte_final.loc[id_est, col_pi] = val_marcar
+                        columnas_dinamicas.append(encabezado_col)
+                        reporte_final[encabezado_col] = 'X' 
 
-                df_aux = reporte_final[columnas_dinamicas]
-                reporte_final['Asist'] = (df_aux == check_pi_latin).sum(axis=1)
-                reporte_final['Ausen.'] = (df_aux == 'X').sum(axis=1)
-                
+                    check_pi_latin = 'V'.encode('latin-1', 'ignore').decode('latin-1')
+                    
+                    for registro in asistencia_data:
+                        id_est = registro['estudiante_id']
+                        if id_est in reporte_final.index:
+                            tema_full = str(registro['tema'])
+                            tema_reg = tema_full.split(" [")[0].strip() if " [" in tema_full else tema_full.strip()
+                            fecha_fmt_reg = formatear_fecha_reporte(registro['fecha'])
+                            
+                            try:
+                                tema_latin_reg = tema_reg.encode('latin-1', 'ignore').decode('latin-1')
+                                col_pi = f"{tema_latin_reg}\n{fecha_fmt_reg}"
+                            except:
+                                col_pi = f"{tema_reg}\n{fecha_fmt_reg}"
+                            
+                            if col_pi in reporte_final.columns:
+                                if "[Excusa Médica]" in tema_full:
+                                    val_marcar = 'E'
+                                elif "[Permiso Institucional]" in tema_full:
+                                    val_marcar = 'P'
+                                elif "[Llegada Tardía]" in tema_full:
+                                    val_marcar = 'T'
+                                elif "[Ausente]" in tema_full:
+                                    val_marcar = 'X'
+                                else:
+                                    val_marcar = check_pi_latin
+                                    
+                                reporte_final.loc[id_est, col_pi] = val_marcar
+
+                    df_aux = reporte_final[columnas_dinamicas]
+                    reporte_final['Asist'] = (df_aux == check_pi_latin).sum(axis=1)
+                    reporte_final['Ausen.'] = (df_aux == 'X').sum(axis=1)
+                else:
+                    reporte_final['Asist'] = 0
+                    reporte_final['Ausen.'] = 0
+
                 reporte_final['Asist'] = reporte_final['Asist'].astype(str)
                 reporte_final['Ausen.'] = reporte_final['Ausen.'].astype(str)
                 
@@ -784,7 +786,7 @@ elif menu == "📊 Reportes":
                         x_col += w_clase
                         pdf.set_xy(x_col, y_col)
                 else:
-                     pdf.cell(ancho_disponible_dinamico, 14, "Sin registros de asistencia en este periodo", 1, 0, 'C', 1)
+                    pdf.cell(ancho_disponible_dinamico, 14, "Sin registros de asistencia en este periodo", 1, 0, 'C', 1)
 
                 pdf.cell(w_totales, 14, "Asist", 1, 0, 'C', 1)
                 pdf.cell(w_totales, 14, "Ausen.", 1, 1, 'C', 1)
@@ -833,10 +835,8 @@ elif menu == "📊 Reportes":
                     use_container_width=True
                 )
 
-            elif todos_est and not asistencia_data:
-                st.warning(f"No se encontraron registros de asistencia para {ga_rep} - {ma_rep} en el **Periodo Académico {periodo_rep}**.")
             else:
-                st.error("Error al consultar los datos de los estudiantes.")
+                st.error(f"No hay estudiantes matriculados en el grado {ga_rep}.")
 
     else:
         st.error("No tienes cursos creados. Ve a la sección de Configuración.")
