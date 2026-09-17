@@ -283,347 +283,357 @@ elif menu == "📷 Scanner / Asistencia":
             if st.button("🔴 Cerrar Clase", use_container_width=True, help="Limpia la selección actual y el tema"):
                 st.session_state.captura_finalizada = False
                 st.session_state.tema_clase_actual = ""
-                if 'sel_curso_scan' in st.session_state:
-                    del st.session_state['sel_curso_scan']
+                # Restablecer el selector de curso a None para dejarlo sin selección
+                st.session_state["sel_curso_scan"] = None
                 st.rerun()
 
         col_c1, col_c2 = st.columns([2, 1])
         
         with col_c1:
             opciones_cursos = sorted(list(set([f"{str(r['grado']).strip()} | {str(r['materia']).strip()}" for r in cursos])))
-            sel_as = st.selectbox("Curso:", opciones_cursos, key="sel_curso_scan")
-            ga, ma = [item.strip() for item in sel_as.split(" | ")]
-        
-        with col_c2:
-            periodo_actual = st.number_input("Periodo Actual:", min_value=1, max_value=4, value=1, step=1, key="num_periodo")
-        
-        tema_input = st.text_input(
-            "Tema de la clase (Sincronizado entre QR y Lista Manual):", 
-            value=st.session_state.tema_clase_actual,
-            placeholder="Ej: Introducción a la Multimedia", 
-            key="input_tema_global"
-        )
-        st.session_state.tema_clase_actual = tema_input.strip()
-        tema = st.session_state.tema_clase_actual
+            
+            # Inicializar sel_curso_scan en session_state con None para que no haya selección previa
+            if "sel_curso_scan" not in st.session_state:
+                st.session_state["sel_curso_scan"] = None
+                
+            sel_as = st.selectbox(
+                "Curso:", 
+                opciones_cursos, 
+                index=None, 
+                placeholder="-- Seleccione un curso --", 
+                key="sel_curso_scan"
+            )
 
-        tab_qr, tab_lista, tab_editar = st.tabs(["📷 Escáner QR", "🔢 Lista Manual", "✏️ Modificar Fechas Anteriores"])
-        
-        # --- TAB 1: ESCÁNER QR ---
-        with tab_qr:
-            if tema:
-                if not st.session_state.captura_finalizada:
-                    st.info(f"📋 **{ga} - {ma}** | Periodo: **{periodo_actual}** | Tema: *{tema}*")
+        if sel_as is None:
+            st.info("👈 Por favor, seleccione un curso para iniciar la clase.")
+        else:
+            ga, ma = [item.strip() for item in sel_as.split(" | ")]
+            
+            with col_c2:
+                periodo_actual = st.number_input("Periodo Actual:", min_value=1, max_value=4, value=1, step=1, key="num_periodo")
+            
+            tema_input = st.text_input(
+                "Tema de la clase (Sincronizado entre QR y Lista Manual):", 
+                value=st.session_state.tema_clase_actual,
+                placeholder="Ej: Introducción a la Multimedia", 
+                key="input_tema_global"
+            )
+            st.session_state.tema_clase_actual = tema_input.strip()
+            tema = st.session_state.tema_clase_actual
+
+            tab_qr, tab_lista, tab_editar = st.tabs(["📷 Escáner QR", "🔢 Lista Manual", "✏️ Modificar Fechas Anteriores"])
+            
+            # --- TAB 1: ESCÁNER QR ---
+            with tab_qr:
+                if tema:
+                    if not st.session_state.captura_finalizada:
+                        st.info(f"📋 **{ga} - {ma}** | Periodo: **{periodo_actual}** | Tema: *{tema}*")
+                        
+                        if st.button("⏹️ Finalizar y Ver Ausentes", type="primary", use_container_width=True):
+                            st.session_state.captura_finalizada = True
+                            st.rerun()
+                        
+                        cod = qrcode_scanner(key=f"sc_{ga}_{ma}_{periodo_actual}".replace(" ", "_"))
+                        
+                        if cod:
+                            id_cl = str(cod).strip()
+                            res = supabase.table("estudiantes").select("documento, nombre, grado")\
+                                .eq("documento", id_cl)\
+                                .eq("profe_id", st.session_state.user).execute().data
+                            
+                            res_filtrado = [e for e in res if str(e.get('grado', '')).strip().upper() == ga.upper()]
+                            
+                            if res_filtrado:
+                                estudiante_encontrado = res_filtrado[0]
+                                doc = str(estudiante_encontrado['documento']).strip()
+                                nom = estudiante_encontrado['nombre']
+                                ahora_co = dt.datetime.now() - dt.timedelta(hours=5)
+                                hoy = ahora_co.strftime("%Y-%m-%d")
+                                
+                                check = supabase.table("asistencia").select("id")\
+                                    .eq("estudiante_id", doc)\
+                                    .eq("fecha", hoy)\
+                                    .eq("materia", ma)\
+                                    .eq("periodo", periodo_actual).execute().data
+                                
+                                if not check:
+                                    try:
+                                        supabase.table("asistencia").insert({
+                                            "estudiante_id": doc, 
+                                            "fecha": hoy, 
+                                            "hora": ahora_co.strftime("%H:%M:%S"), 
+                                            "grado": ga, 
+                                            "materia": ma, 
+                                            "tema": tema, 
+                                            "periodo": periodo_actual,
+                                            "profe_id": st.session_state.user
+                                        }).execute()
+                                        
+                                        st.toast(f"✅ Registrado (P{periodo_actual}): {nom}", icon="👤")
+                                        st.success(f"👤 **Estudiante detectado ({ga}):** {nom}")
+                                        time.sleep(0.5)
+                                    except Exception as e:
+                                        st.error(f"Error al guardar asistencia: {e}")
+                                else:
+                                    st.toast(f"ℹ️ {nom} ya registrado hoy", icon="✅")
+                                    st.warning(f"El estudiante **{nom}** ya fue registrado previamente hoy.")
+                            else:
+                                st.toast(f"⚠️ Código {id_cl} no asignado a {ga}", icon="❌")
+                                st.error(f"El código **{id_cl}** no se encuentra registrado en el grado **{ga}**.")
                     
-                    if st.button("⏹️ Finalizar y Ver Ausentes", type="primary", use_container_width=True):
-                        st.session_state.captura_finalizada = True
-                        st.rerun()
-                    
-                    cod = qrcode_scanner(key=f"sc_{ga}_{ma}_{periodo_actual}".replace(" ", "_"))
-                    
-                    if cod:
-                        id_cl = str(cod).strip()
-                        res = supabase.table("estudiantes").select("documento, nombre, grado")\
-                            .eq("documento", id_cl)\
+                    else:
+                        if st.button("🔄 Volver a escanear / Reabrir Clase", use_container_width=True):
+                            st.session_state.captura_finalizada = False
+                            st.rerun()
+
+                        st.warning(f"⚠️ Estudiantes Ausentes en {ga} ({ma} - Periodo {periodo_actual}):")
+                        
+                        ahora_col = dt.datetime.now() - dt.timedelta(hours=5)
+                        hoy_col = ahora_col.strftime("%Y-%m-%d")
+                        hora_msj = ahora_col.strftime("%I:%M %p")
+                        saludo = "*Buenos días*" if ahora_col.hour < 12 else ("*Buenas tardes*" if ahora_col.hour < 18 else "*Buenas noches*")
+                        
+                        todos_est = supabase.table("estudiantes").select("documento, nombre, whatsapp, grado")\
                             .eq("profe_id", st.session_state.user).execute().data
                         
-                        # Filtro estricto en memoria para evitar colisiones de grado
-                        res_filtrado = [e for e in res if str(e.get('grado', '')).strip().upper() == ga.upper()]
+                        estudiantes_curso = [e for e in todos_est if str(e.get('grado', '')).strip().upper() == ga.upper()]
+                        estudiantes_curso = sorted(estudiantes_curso, key=lambda x: x['nombre'])
                         
-                        if res_filtrado:
-                            estudiante_encontrado = res_filtrado[0]
-                            doc = str(estudiante_encontrado['documento']).strip()
-                            nom = estudiante_encontrado['nombre']
-                            ahora_co = dt.datetime.now() - dt.timedelta(hours=5)
-                            hoy = ahora_co.strftime("%Y-%m-%d")
+                        asistieron_raw = supabase.table("asistencia").select("estudiante_id, tema")\
+                            .eq("grado", ga)\
+                            .eq("materia", ma)\
+                            .eq("fecha", hoy_col)\
+                            .eq("periodo", periodo_actual).execute().data
+                        
+                        registros_excluidos = set()
+                        for r in asistieron_raw:
+                            est_id = str(r.get('estudiante_id', '')).strip()
+                            tema_r = str(r.get('tema', '')).strip()
+                            if not ("[Ausente]" in tema_r):
+                                registros_excluidos.add(est_id)
+
+                        ausentes = [e for e in estudiantes_curso if str(e['documento']).strip() not in registros_excluidos]
+                        
+                        if ausentes:
+                            st.write(f"Total ausentes: **{len(ausentes)}** de **{len(estudiantes_curso)}** matriculados.")
+                            for aus in ausentes:
+                                col_a, col_b = st.columns([3, 1])
+                                col_a.write(f"❌ **{aus['nombre']}**")
+                                
+                                cuerpo_msj = (
+                                    f"{saludo}, señor(a) padre de familia o acudiente. "
+                                    f"La Institución Educativa San Antonio de Padua le informa que el estudiante "
+                                    f"*{aus['nombre']}* no se presentó el día de hoy a la clase de *{ma}* ({ga}).\n\n"
+                                    f"*Hora de reporte:* {hora_msj}\n"
+                                    f"*Tema tratado:* {tema}.\n\n"
+                                    f"Institucionalmente,\n\n"
+                                    f"*Docente:* {st.session_state.profe_nom}\n"
+                                    f"*Área:* {ma}"
+                                )
+                                
+                                msg_encoded = urllib.parse.quote(cuerpo_msj)
+                                num_wa = str(aus.get('whatsapp', '')).strip()
+                                link_wa = f"https://wa.me/57{num_wa}?text={msg_encoded}"
+                                col_b.markdown(f"[📲 Notificar]({link_wa})")
+                        else:
+                            st.success("🎉 ¡No hay reportes de inasistencia pendientes hoy!")
+                else:
+                    st.info("Por favor ingresa el **Tema de la clase** arriba para activar el Escáner QR.")
+
+            # --- TAB 2: LISTA MANUAL ---
+            with tab_lista:
+                st.info(f"Registro Manual para **{ga} - {ma}** | Periodo: **{periodo_actual}**")
+                
+                if tema:
+                    ahora_co = dt.datetime.now() - dt.timedelta(hours=5)
+                    hoy_m = ahora_co.strftime("%Y-%m-%d")
+                    
+                    estado_sel = st.selectbox("Estado del Registro:", ESTADOS_ASISTENCIA, index=0, key="sel_est_manual")
+                    
+                    todos_est_raw = supabase.table("estudiantes").select("documento, nombre, grado")\
+                        .eq("profe_id", st.session_state.user).execute().data
+                    
+                    ga_objetivo = ga.strip().upper()
+                    estudiantes_curso = []
+                    vistos = set()
+                    
+                    for e in sorted(todos_est_raw, key=lambda x: str(x.get('nombre', ''))):
+                        grado_est = str(e.get('grado', '')).strip().upper()
+                        nom_est = str(e.get('nombre', '')).strip().upper()
+                        
+                        if grado_est == ga_objetivo and nom_est not in vistos:
+                            vistos.add(nom_est)
+                            estudiantes_curso.append(e)
+
+                    with st.expander("🔍 Herramienta de Inspección de Estudiantes", expanded=False):
+                        st.caption(f"Mostrando estudiantes asignados exactamente al grado **{ga_objetivo}**:")
+                        if estudiantes_curso:
+                            st.dataframe(pd.DataFrame(estudiantes_curso)[['documento', 'nombre', 'grado']])
+                        else:
+                            st.warning(f"No hay estudiantes etiquetados exactamente con el grado '{ga_objetivo}'.")
+
+                    if estudiantes_curso:
+                        ya_registrados_raw = supabase.table("asistencia").select("estudiante_id")\
+                            .eq("grado", ga)\
+                            .eq("materia", ma)\
+                            .eq("fecha", hoy_m)\
+                            .eq("periodo", periodo_actual).execute().data
+                        
+                        ids_registrados = set(str(r['estudiante_id']).strip() for r in ya_registrados_raw)
+
+                        nombres_estudiantes = []
+                        for i, e in enumerate(estudiantes_curso):
+                            doc_clean = str(e['documento']).strip()
+                            marca = "✅ (Ya en lista)" if doc_clean in ids_registrados else "⏳ (Pendiente)"
+                            nombres_estudiantes.append(f"{i+1}. {e['nombre']} — {marca}")
+                        
+                        est_sel_nombre = st.selectbox(
+                            "Seleccione el estudiante a registrar:", 
+                            nombres_estudiantes, 
+                            key=f"sel_man_{ga}_{ma}".replace(" ", "_")
+                        )
+                        
+                        idx_seleccionado = nombres_estudiantes.index(est_sel_nombre)
+                        
+                        if st.button("✅ Registrar Asistencia Manual", use_container_width=True, type="primary"):
+                            est_sel = estudiantes_curso[idx_seleccionado]
+                            doc_m, nom_m = str(est_sel['documento']).strip(), est_sel['nombre']
                             
-                            check = supabase.table("asistencia").select("id")\
-                                .eq("estudiante_id", doc)\
-                                .eq("fecha", hoy)\
+                            check_m = supabase.table("asistencia").select("id")\
+                                .eq("estudiante_id", doc_m)\
+                                .eq("fecha", hoy_m)\
                                 .eq("materia", ma)\
                                 .eq("periodo", periodo_actual).execute().data
                             
-                            if not check:
-                                try:
-                                    supabase.table("asistencia").insert({
-                                        "estudiante_id": doc, 
-                                        "fecha": hoy, 
-                                        "hora": ahora_co.strftime("%H:%M:%S"), 
-                                        "grado": ga, 
-                                        "materia": ma, 
-                                        "tema": tema, 
-                                        "periodo": periodo_actual,
-                                        "profe_id": st.session_state.user
-                                    }).execute()
-                                    
-                                    st.toast(f"✅ Registrado (P{periodo_actual}): {nom}", icon="👤")
-                                    st.success(f"👤 **Estudiante detectado ({ga}):** {nom}")
-                                    time.sleep(0.5)
-                                except Exception as e:
-                                    st.error(f"Error al guardar asistencia: {e}")
-                            else:
-                                st.toast(f"ℹ️ {nom} ya registrado hoy", icon="✅")
-                                st.warning(f"El estudiante **{nom}** ya fue registrado previamente hoy.")
-                        else:
-                            st.toast(f"⚠️ Código {id_cl} no asignado a {ga}", icon="❌")
-                            st.error(f"El código **{id_cl}** no se encuentra registrado en el grado **{ga}**.")
-                
-                else:
-                    if st.button("🔄 Volver a escanear / Reabrir Clase", use_container_width=True):
-                        st.session_state.captura_finalizada = False
-                        st.rerun()
-
-                    st.warning(f"⚠️ Estudiantes Ausentes en {ga} ({ma} - Periodo {periodo_actual}):")
-                    
-                    ahora_col = dt.datetime.now() - dt.timedelta(hours=5)
-                    hoy_col = ahora_col.strftime("%Y-%m-%d")
-                    hora_msj = ahora_col.strftime("%I:%M %p")
-                    saludo = "*Buenos días*" if ahora_col.hour < 12 else ("*Buenas tardes*" if ahora_col.hour < 18 else "*Buenas noches*")
-                    
-                    todos_est = supabase.table("estudiantes").select("documento, nombre, whatsapp, grado")\
-                        .eq("profe_id", st.session_state.user).execute().data
-                    
-                    # Filtro de seguridad estricto
-                    estudiantes_curso = [e for e in todos_est if str(e.get('grado', '')).strip().upper() == ga.upper()]
-                    estudiantes_curso = sorted(estudiantes_curso, key=lambda x: x['nombre'])
-                    
-                    asistieron_raw = supabase.table("asistencia").select("estudiante_id, tema")\
-                        .eq("grado", ga)\
-                        .eq("materia", ma)\
-                        .eq("fecha", hoy_col)\
-                        .eq("periodo", periodo_actual).execute().data
-                    
-                    registros_excluidos = set()
-                    for r in asistieron_raw:
-                        est_id = str(r.get('estudiante_id', '')).strip()
-                        tema_r = str(r.get('tema', '')).strip()
-                        if not ("[Ausente]" in tema_r):
-                            registros_excluidos.add(est_id)
-
-                    ausentes = [e for e in estudiantes_curso if str(e['documento']).strip() not in registros_excluidos]
-                    
-                    if ausentes:
-                        st.write(f"Total ausentes: **{len(ausentes)}** de **{len(estudiantes_curso)}** matriculados.")
-                        for aus in ausentes:
-                            col_a, col_b = st.columns([3, 1])
-                            col_a.write(f"❌ **{aus['nombre']}**")
+                            tema_guardar = f"{tema} [{estado_sel}]" if estado_sel != "Presente" else tema
                             
-                            cuerpo_msj = (
-                                f"{saludo}, señor(a) padre de familia o acudiente. "
-                                f"La Institución Educativa San Antonio de Padua le informa que el estudiante "
-                                f"*{aus['nombre']}* no se presentó el día de hoy a la clase de *{ma}* ({ga}).\n\n"
-                                f"*Hora de reporte:* {hora_msj}\n"
-                                f"*Tema tratado:* {tema}.\n\n"
-                                f"Institucionalmente,\n\n"
-                                f"*Docente:* {st.session_state.profe_nom}\n"
-                                f"*Área:* {ma}"
-                            )
-                            
-                            msg_encoded = urllib.parse.quote(cuerpo_msj)
-                            num_wa = str(aus.get('whatsapp', '')).strip()
-                            link_wa = f"https://wa.me/57{num_wa}?text={msg_encoded}"
-                            col_b.markdown(f"[📲 Notificar]({link_wa})")
-                    else:
-                        st.success("🎉 ¡No hay reportes de inasistencia pendientes hoy!")
-            else:
-                st.info("Por favor ingresa el **Tema de la clase** arriba para activar el Escáner QR.")
-
-        # --- TAB 2: LISTA MANUAL ---
-        with tab_lista:
-            st.info(f"Registro Manual para **{ga} - {ma}** | Periodo: **{periodo_actual}**")
-            
-            if tema:
-                ahora_co = dt.datetime.now() - dt.timedelta(hours=5)
-                hoy_m = ahora_co.strftime("%Y-%m-%d")
-                
-                estado_sel = st.selectbox("Estado del Registro:", ESTADOS_ASISTENCIA, index=0, key="sel_est_manual")
-                
-                # Traer todos los estudiantes del profesor para aplicar un filtro estricto por código
-                todos_est_raw = supabase.table("estudiantes").select("documento, nombre, grado")\
-                    .eq("profe_id", st.session_state.user).execute().data
-                
-                # FILTRADO EXPLICITO DE SEGURIDAD (Elimina espacios y compara en mayúsculas)
-                ga_objetivo = ga.strip().upper()
-                estudiantes_curso = []
-                vistos = set()
-                
-                for e in sorted(todos_est_raw, key=lambda x: str(x.get('nombre', ''))):
-                    grado_est = str(e.get('grado', '')).strip().upper()
-                    nom_est = str(e.get('nombre', '')).strip().upper()
-                    
-                    if grado_est == ga_objetivo and nom_est not in vistos:
-                        vistos.add(nom_est)
-                        estudiantes_curso.append(e)
-
-                # HERRAMIENTA DE INSPECCIÓN / DIAGNÓSTICO
-                with st.expander("🔍 Herramienta de Inspección de Estudiantes", expanded=False):
-                    st.caption(f"Mostrando estudiantes asignados exactamente al grado **{ga_objetivo}**:")
-                    if estudiantes_curso:
-                        st.dataframe(pd.DataFrame(estudiantes_curso)[['documento', 'nombre', 'grado']])
-                    else:
-                        st.warning(f"No hay estudiantes etiquetados exactamente con el grado '{ga_objetivo}'.")
-
-                if estudiantes_curso:
-                    ya_registrados_raw = supabase.table("asistencia").select("estudiante_id")\
-                        .eq("grado", ga)\
-                        .eq("materia", ma)\
-                        .eq("fecha", hoy_m)\
-                        .eq("periodo", periodo_actual).execute().data
-                    
-                    ids_registrados = set(str(r['estudiante_id']).strip() for r in ya_registrados_raw)
-
-                    nombres_estudiantes = []
-                    for i, e in enumerate(estudiantes_curso):
-                        doc_clean = str(e['documento']).strip()
-                        marca = "✅ (Ya en lista)" if doc_clean in ids_registrados else "⏳ (Pendiente)"
-                        nombres_estudiantes.append(f"{i+1}. {e['nombre']} — {marca}")
-                    
-                    est_sel_nombre = st.selectbox(
-                        "Seleccione el estudiante a registrar:", 
-                        nombres_estudiantes, 
-                        key=f"sel_man_{ga}_{ma}".replace(" ", "_")
-                    )
-                    
-                    idx_seleccionado = nombres_estudiantes.index(est_sel_nombre)
-                    
-                    if st.button("✅ Registrar Asistencia Manual", use_container_width=True, type="primary"):
-                        est_sel = estudiantes_curso[idx_seleccionado]
-                        doc_m, nom_m = str(est_sel['documento']).strip(), est_sel['nombre']
-                        
-                        check_m = supabase.table("asistencia").select("id")\
-                            .eq("estudiante_id", doc_m)\
-                            .eq("fecha", hoy_m)\
-                            .eq("materia", ma)\
-                            .eq("periodo", periodo_actual).execute().data
-                        
-                        tema_guardar = f"{tema} [{estado_sel}]" if estado_sel != "Presente" else tema
-                        
-                        payload_manual = {
-                            "estudiante_id": doc_m, 
-                            "fecha": hoy_m, 
-                            "hora": ahora_co.strftime("%H:%M:%S"), 
-                            "grado": ga, 
-                            "materia": ma, 
-                            "tema": tema_guardar, 
-                            "periodo": periodo_actual,
-                            "profe_id": st.session_state.user
-                        }
-                        
-                        if not check_m:
-                            supabase.table("asistencia").insert(payload_manual).execute()
-                            st.success(f"Guardado como **{estado_sel}**: {nom_m}")
-                            time.sleep(0.5)
-                            st.rerun()
-                        else:
-                            st.warning(f"El estudiante **{nom_m}** ya estaba registrado hoy.")
-                else:
-                    st.warning(f"No hay estudiantes registrados para el grado **{ga}**.")
-            else:
-                st.info("Ingresa el **Tema de la clase** en el campo superior antes de seleccionar en lista.")
-
-        # --- TAB 3: MODIFICAR FECHAS ANTERIORES ---
-        with tab_editar:
-            st.info(f"Edición / Corrección de Asistencia para **{ga} - {ma}** (Periodo {periodo_actual})")
-
-            clases_previas = supabase.table("asistencia").select("fecha, tema")\
-                .eq("grado", ga)\
-                .eq("materia", ma)\
-                .eq("periodo", periodo_actual)\
-                .eq("profe_id", st.session_state.user)\
-                .order("fecha", desc=True).execute().data
-
-            if clases_previas:
-                fechas_unicas = {}
-                for c in clases_previas:
-                    f_str = c['fecha']
-                    if f_str not in fechas_unicas:
-                        t_base = str(c['tema']).split(" [")[0].strip()
-                        fechas_unicas[f_str] = t_base
-
-                opciones_fechas = [f"📅 {fecha}  |  Tema: {tema_hist}" for fecha, tema_hist in fechas_unicas.items()]
-                
-                sel_fecha_lbl = st.selectbox("Seleccione la Clase Registrada a Modificar:", opciones_fechas, key="sel_f_historica")
-                
-                fecha_mod_str = sel_fecha_lbl.split(" | ")[0].replace("📅 ", "").strip()
-                tema_original = fechas_unicas[fecha_mod_str]
-
-                st.markdown(f"📖 **Tema de la Clase Seleccionada:** *{tema_original}*")
-
-                todos_est_raw = supabase.table("estudiantes").select("documento, nombre, grado")\
-                    .eq("profe_id", st.session_state.user).execute().data
-                
-                estudiantes_curso = [e for e in todos_est_raw if str(e.get('grado', '')).strip().upper() == ga.strip().upper()]
-                estudiantes_curso = sorted(estudiantes_curso, key=lambda x: x['nombre'])
-
-                if estudiantes_curso:
-                    registros_existentes = supabase.table("asistencia").select("id, estudiante_id, tema")\
-                        .eq("grado", ga)\
-                        .eq("materia", ma)\
-                        .eq("periodo", periodo_actual)\
-                        .eq("fecha", fecha_mod_str)\
-                        .eq("profe_id", st.session_state.user).execute().data
-
-                    mapa_asistencia = {r['estudiante_id']: r for r in registros_existentes}
-
-                    opciones_mod = []
-                    mapa_opciones = {}
-
-                    for e in estudiantes_curso:
-                        doc = e['documento']
-                        nombre = e['nombre']
-
-                        if doc in mapa_asistencia:
-                            reg = mapa_asistencia[doc]
-                            tema_full = str(reg['tema'])
-                            estado_actual = "Presente"
-                            for est in ESTADOS_ASISTENCIA:
-                                if f"[{est}]" in tema_full:
-                                    estado_actual = est
-                                    break
-                        else:
-                            estado_actual = "Ausente"
-                            reg = None
-
-                        lbl = f"{nombre}  |  Estado actual: [{estado_actual}]"
-                        opciones_mod.append(lbl)
-                        mapa_opciones[lbl] = {"estudiante": e, "registro": reg, "estado_actual": estado_actual}
-
-                    col_est, col_est_nuevo = st.columns([2, 1])
-                    with col_est:
-                        est_seleccionado_lbl = st.selectbox("Estudiante:", opciones_mod, key="sel_mod_est_tab")
-                    with col_est_nuevo:
-                        nuevo_estado = st.selectbox("Nuevo Estado:", ESTADOS_ASISTENCIA, key="sel_nuevo_est_tab")
-
-                    datos_sel = mapa_opciones[est_seleccionado_lbl]
-
-                    if st.button("💾 Guardar Cambio de Estado", type="primary", use_container_width=True):
-                        tema_guardar = f"{tema_original} [{nuevo_estado}]" if nuevo_estado != "Presente" else tema_original
-                        doc_est = datos_sel["estudiante"]["documento"]
-                        reg = datos_sel["registro"]
-
-                        if reg:
-                            supabase.table("asistencia").update({
-                                "tema": tema_guardar
-                            }).eq("id", reg['id']).execute()
-                        else:
-                            ahora_mod = dt.datetime.now() - dt.timedelta(hours=5)
-                            supabase.table("asistencia").insert({
-                                "estudiante_id": doc_est,
-                                "fecha": fecha_mod_str,
-                                "hora": ahora_mod.strftime("%H:%M:%S"),
-                                "grado": ga,
-                                "materia": ma,
-                                "tema": tema_guardar,
+                            payload_manual = {
+                                "estudiante_id": doc_m, 
+                                "fecha": hoy_m, 
+                                "hora": ahora_co.strftime("%H:%M:%S"), 
+                                "grado": ga, 
+                                "materia": ma, 
+                                "tema": tema_guardar, 
                                 "periodo": periodo_actual,
                                 "profe_id": st.session_state.user
-                            }).execute()
-
-                        st.success(f"✅ Estado de **{datos_sel['estudiante']['nombre']}** actualizado a **{nuevo_estado}**.")
-                        time.sleep(1)
-                        st.rerun()
+                            }
+                            
+                            if not check_m:
+                                supabase.table("asistencia").insert(payload_manual).execute()
+                                st.success(f"Guardado como **{estado_sel}**: {nom_m}")
+                                time.sleep(0.5)
+                                st.rerun()
+                            else:
+                                st.warning(f"El estudiante **{nom_m}** ya estaba registrado hoy.")
+                    else:
+                        st.warning(f"No hay estudiantes registrados para el grado **{ga}**.")
                 else:
-                    st.warning(f"No hay estudiantes matriculados en el grado **{ga}**.")
-            else:
-                st.warning(f"No hay clases registradas previamente para **{ga} - {ma}** en el Periodo {periodo_actual}.")
+                    st.info("Ingresa el **Tema de la clase** en el campo superior antes de seleccionar en lista.")
+
+            # --- TAB 3: MODIFICAR FECHAS ANTERIORES ---
+            with tab_editar:
+                st.info(f"Edición / Corrección de Asistencia para **{ga} - {ma}** (Periodo {periodo_actual})")
+
+                clases_previas = supabase.table("asistencia").select("fecha, tema")\
+                    .eq("grado", ga)\
+                    .eq("materia", ma)\
+                    .eq("periodo", periodo_actual)\
+                    .eq("profe_id", st.session_state.user)\
+                    .order("fecha", desc=True).execute().data
+
+                if clases_previas:
+                    fechas_unicas = {}
+                    for c in clases_previas:
+                        f_str = c['fecha']
+                        if f_str not in fechas_unicas:
+                            t_base = str(c['tema']).split(" [")[0].strip()
+                            fechas_unicas[f_str] = t_base
+
+                    opciones_fechas = [f"📅 {fecha}  |  Tema: {tema_hist}" for fecha, tema_hist in fechas_unicas.items()]
+                    
+                    sel_fecha_lbl = st.selectbox("Seleccione la Clase Registrada a Modificar:", opciones_fechas, key="sel_f_historica")
+                    
+                    fecha_mod_str = sel_fecha_lbl.split(" | ")[0].replace("📅 ", "").strip()
+                    tema_original = fechas_unicas[fecha_mod_str]
+
+                    st.markdown(f"📖 **Tema de la Clase Seleccionada:** *{tema_original}*")
+
+                    todos_est_raw = supabase.table("estudiantes").select("documento, nombre, grado")\
+                        .eq("profe_id", st.session_state.user).execute().data
+                    
+                    estudiantes_curso = [e for e in todos_est_raw if str(e.get('grado', '')).strip().upper() == ga.strip().upper()]
+                    estudiantes_curso = sorted(estudiantes_curso, key=lambda x: x['nombre'])
+
+                    if estudiantes_curso:
+                        registros_existentes = supabase.table("asistencia").select("id, estudiante_id, tema")\
+                            .eq("grado", ga)\
+                            .eq("materia", ma)\
+                            .eq("periodo", periodo_actual)\
+                            .eq("fecha", fecha_mod_str)\
+                            .eq("profe_id", st.session_state.user).execute().data
+
+                        mapa_asistencia = {r['estudiante_id']: r for r in registros_existentes}
+
+                        opciones_mod = []
+                        mapa_opciones = {}
+
+                        for e in estudiantes_curso:
+                            doc = e['documento']
+                            nombre = e['nombre']
+
+                            if doc in mapa_asistencia:
+                                reg = mapa_asistencia[doc]
+                                tema_full = str(reg['tema'])
+                                estado_actual = "Presente"
+                                for est in ESTADOS_ASISTENCIA:
+                                    if f"[{est}]" in tema_full:
+                                        estado_actual = est
+                                        break
+                            else:
+                                estado_actual = "Ausente"
+                                reg = None
+
+                            lbl = f"{nombre}  |  Estado actual: [{estado_actual}]"
+                            opciones_mod.append(lbl)
+                            mapa_opciones[lbl] = {"estudiante": e, "registro": reg, "estado_actual": estado_actual}
+
+                        col_est, col_est_nuevo = st.columns([2, 1])
+                        with col_est:
+                            est_seleccionado_lbl = st.selectbox("Estudiante:", opciones_mod, key="sel_mod_est_tab")
+                        with col_est_nuevo:
+                            nuevo_estado = st.selectbox("Nuevo Estado:", ESTADOS_ASISTENCIA, key="sel_nuevo_est_tab")
+
+                        datos_sel = mapa_opciones[est_seleccionado_lbl]
+
+                        if st.button("💾 Guardar Cambio de Estado", type="primary", use_container_width=True):
+                            tema_guardar = f"{tema_original} [{nuevo_estado}]" if nuevo_estado != "Presente" else tema_original
+                            doc_est = datos_sel["estudiante"]["documento"]
+                            reg = datos_sel["registro"]
+
+                            if reg:
+                                supabase.table("asistencia").update({
+                                    "tema": tema_guardar
+                                }).eq("id", reg['id']).execute()
+                            else:
+                                ahora_mod = dt.datetime.now() - dt.timedelta(hours=5)
+                                supabase.table("asistencia").insert({
+                                    "estudiante_id": doc_est,
+                                    "fecha": fecha_mod_str,
+                                    "hora": ahora_mod.strftime("%H:%M:%S"),
+                                    "grado": ga,
+                                    "materia": ma,
+                                    "tema": tema_guardar,
+                                    "periodo": periodo_actual,
+                                    "profe_id": st.session_state.user
+                                }).execute()
+
+                            st.success(f"✅ Estado de **{datos_sel['estudiante']['nombre']}** actualizado a **{nuevo_estado}**.")
+                            time.sleep(1)
+                            st.rerun()
+                    else:
+                        st.warning(f"No hay estudiantes matriculados en el grado **{ga}**.")
+                else:
+                    st.warning(f"No hay clases registradas previamente para **{ga} - {ma}** en el Periodo {periodo_actual}.")
     else:
         st.error("No tienes cursos asignados. Por favor, crea un curso primero en la configuración.")
 
@@ -662,7 +672,6 @@ elif menu == "📊 Reportes":
                 todos_est_raw = supabase.table("estudiantes").select("documento, nombre, grado")\
                     .eq("profe_id", st.session_state.user).order("nombre").execute().data
 
-                # Filtro estricto por el grado seleccionado
                 todos_est = [e for e in todos_est_raw if str(e.get('grado', '')).strip().upper() == ga_rep.strip().upper()]
 
                 asistencia_data = supabase.table("asistencia").select("estudiante_id, fecha, tema")\
