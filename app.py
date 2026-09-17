@@ -17,7 +17,7 @@ from fpdf import FPDF
 # ==============================================================================
 # --- CONSTANTES GLOBALES ---
 APP_NAME = "EduAsistencia-Pro"
-APP_VERSION = "v2.2.0"
+APP_VERSION = "v2.2.1"
 DEVELOPER_NAME = "Rubén Darío Ávila Sandoval"
 IE_INITIALS = "I.E. S.A.P."
 COLEGIO = "Institución Educativa San Antonio de Padua"
@@ -166,7 +166,7 @@ if menu == "📚 Cursos":
     g, m = st.text_input("Grado"), st.text_input("Asignatura")
     if st.button("Añadir Curso"):
         if g.strip() and m.strip():
-            supabase.table("cursos").insert({"grado": g, "materia": m, "profe_id": st.session_state.user}).execute()
+            supabase.table("cursos").insert({"grado": g.strip(), "materia": m.strip(), "profe_id": st.session_state.user}).execute()
             st.rerun()
         else:
             st.warning("Por favor ingresa tanto el Grado como la Asignatura.")
@@ -190,10 +190,10 @@ elif menu == "👤 Estudiantes":
 
     cursos = supabase.table("cursos").select("grado, materia").eq("profe_id", st.session_state.user).execute().data
     if cursos:
-        opciones_cursos = sorted([f"{r['grado']} | {r['materia']}" for r in cursos])
+        opciones_cursos = sorted([f"{r['grado'].strip()} | {r['materia'].strip()}" for r in cursos])
         sel = st.selectbox("Curso:", opciones_cursos)
         
-        gs, ms = sel.split(" | ")
+        gs, ms = [x.strip() for x in sel.split(" | ")]
         f = st.file_uploader("Subir Excel", type=["xlsx"])
         
         if f and st.button("Procesar y Generar PDF"):
@@ -221,8 +221,8 @@ elif menu == "👤 Estudiantes":
                     "documento": e_id, 
                     "nombre": e_nm, 
                     "whatsapp": e_ws, 
-                    "grado": gs.strip(), 
-                    "materia": ms.strip(), 
+                    "grado": gs, 
+                    "materia": ms, 
                     "profe_id": st.session_state.user
                 }, on_conflict="documento").execute()
                 
@@ -297,7 +297,6 @@ elif menu == "📷 Scanner / Asistencia":
         with col_c2:
             periodo_actual = st.number_input("Periodo Actual:", min_value=1, max_value=4, value=1, step=1, key="num_periodo")
         
-        # CAMPO DE TEMA UNIFICADO (Persiste entre pestañas)
         tema_input = st.text_input(
             "Tema de la clase (Sincronizado entre QR y Lista Manual):", 
             value=st.session_state.tema_clase_actual,
@@ -325,11 +324,13 @@ elif menu == "📷 Scanner / Asistencia":
                         id_cl = str(cod).strip()
                         res = supabase.table("estudiantes").select("documento, nombre, grado")\
                             .eq("documento", id_cl)\
-                            .eq("grado", ga)\
                             .eq("profe_id", st.session_state.user).execute().data
                         
-                        if res:
-                            estudiante_encontrado = res[0]
+                        # Filtro estricto en memoria para evitar colisiones de grado
+                        res_filtrado = [e for e in res if str(e.get('grado', '')).strip().upper() == ga.upper()]
+                        
+                        if res_filtrado:
+                            estudiante_encontrado = res_filtrado[0]
                             doc = str(estudiante_encontrado['documento']).strip()
                             nom = estudiante_encontrado['nombre']
                             ahora_co = dt.datetime.now() - dt.timedelta(hours=5)
@@ -378,18 +379,12 @@ elif menu == "📷 Scanner / Asistencia":
                     hora_msj = ahora_col.strftime("%I:%M %p")
                     saludo = "*Buenos días*" if ahora_col.hour < 12 else ("*Buenas tardes*" if ahora_col.hour < 18 else "*Buenas noches*")
                     
-                    # CORRECCIÓN: Filtro directo por grado
                     todos_est = supabase.table("estudiantes").select("documento, nombre, whatsapp, grado")\
-                        .eq("profe_id", st.session_state.user)\
-                        .eq("grado", ga).execute().data
+                        .eq("profe_id", st.session_state.user).execute().data
                     
-                    estudiantes_unicos = {}
-                    for e in todos_est:
-                        nom_clean = str(e.get('nombre', '')).strip().upper()
-                        if nom_clean and nom_clean not in estudiantes_unicos:
-                            estudiantes_unicos[nom_clean] = e
-                    
-                    estudiantes_curso = sorted(list(estudiantes_unicos.values()), key=lambda x: x['nombre'])
+                    # Filtro de seguridad estricto
+                    estudiantes_curso = [e for e in todos_est if str(e.get('grado', '')).strip().upper() == ga.upper()]
+                    estudiantes_curso = sorted(estudiantes_curso, key=lambda x: x['nombre'])
                     
                     asistieron_raw = supabase.table("asistencia").select("estudiante_id, tema")\
                         .eq("grado", ga)\
@@ -442,19 +437,31 @@ elif menu == "📷 Scanner / Asistencia":
                 
                 estado_sel = st.selectbox("Estado del Registro:", ESTADOS_ASISTENCIA, index=0, key="sel_est_manual")
                 
-                # CORRECCIÓN: Filtrar directamente por el grado 'ga' en Supabase
-                todos_est = supabase.table("estudiantes").select("documento, nombre, grado")\
-                    .eq("profe_id", st.session_state.user)\
-                    .eq("grado", ga).execute().data
+                # Traer todos los estudiantes del profesor para aplicar un filtro estricto por código
+                todos_est_raw = supabase.table("estudiantes").select("documento, nombre, grado")\
+                    .eq("profe_id", st.session_state.user).execute().data
                 
-                vistos = set()
+                # FILTRADO EXPLICITO DE SEGURIDAD (Elimina espacios y compara en mayúsculas)
+                ga_objetivo = ga.strip().upper()
                 estudiantes_curso = []
-                for e in sorted(todos_est, key=lambda x: x['nombre']):
+                vistos = set()
+                
+                for e in sorted(todos_est_raw, key=lambda x: str(x.get('nombre', ''))):
+                    grado_est = str(e.get('grado', '')).strip().upper()
                     nom_est = str(e.get('nombre', '')).strip().upper()
-                    if nom_est not in vistos:
+                    
+                    if grado_est == ga_objetivo and nom_est not in vistos:
                         vistos.add(nom_est)
                         estudiantes_curso.append(e)
-                
+
+                # HERRAMIENTA DE INSPECCIÓN / DIAGNÓSTICO
+                with st.expander("🔍 Herramienta de Inspección de Estudiantes", expanded=False):
+                    st.caption(f"Mostrando estudiantes asignados exactamente al grado **{ga_objetivo}**:")
+                    if estudiantes_curso:
+                        st.dataframe(pd.DataFrame(estudiantes_curso)[['documento', 'nombre', 'grado']])
+                    else:
+                        st.warning(f"No hay estudiantes etiquetados exactamente con el grado '{ga_objetivo}'.")
+
                 if estudiantes_curso:
                     ya_registrados_raw = supabase.table("asistencia").select("estudiante_id")\
                         .eq("grado", ga)\
@@ -509,7 +516,7 @@ elif menu == "📷 Scanner / Asistencia":
                         else:
                             st.warning(f"El estudiante **{nom_m}** ya estaba registrado hoy.")
                 else:
-                    st.warning(f"No hay estudiantes en **{ga}**.")
+                    st.warning(f"No hay estudiantes registrados para el grado **{ga}**.")
             else:
                 st.info("Ingresa el **Tema de la clase** en el campo superior antes de seleccionar en lista.")
 
@@ -541,11 +548,11 @@ elif menu == "📷 Scanner / Asistencia":
 
                 st.markdown(f"📖 **Tema de la Clase Seleccionada:** *{tema_original}*")
 
-                # CORRECCIÓN: Filtrar por el grado específico
-                estudiantes_curso = supabase.table("estudiantes").select("documento, nombre")\
-                    .eq("grado", ga)\
-                    .eq("profe_id", st.session_state.user)\
-                    .order("nombre").execute().data
+                todos_est_raw = supabase.table("estudiantes").select("documento, nombre, grado")\
+                    .eq("profe_id", st.session_state.user).execute().data
+                
+                estudiantes_curso = [e for e in todos_est_raw if str(e.get('grado', '')).strip().upper() == ga.strip().upper()]
+                estudiantes_curso = sorted(estudiantes_curso, key=lambda x: x['nombre'])
 
                 if estudiantes_curso:
                     registros_existentes = supabase.table("asistencia").select("id, estudiante_id, tema")\
@@ -638,7 +645,7 @@ elif menu == "📊 Reportes":
         col_r1, col_r2, col_r3 = st.columns([2, 1, 1])
 
         with col_r1:
-            opciones_cursos_rep = sorted([f"{r['grado']} | {r['materia']}" for r in cursos])
+            opciones_cursos_rep = sorted([f"{r['grado'].strip()} | {r['materia'].strip()}" for r in cursos])
             sel_as_rep = st.selectbox("Seleccione el Curso:", opciones_cursos_rep, key="sel_curso_rep")
             ga_rep, ma_rep = [item.strip() for item in sel_as_rep.split(" | ")]
 
@@ -652,10 +659,11 @@ elif menu == "📊 Reportes":
 
         if btn_generar:
             with st.spinner(f"Generando sábana detallada de {ga_rep} ({ma_rep}) - Periodo {periodo_rep}..."):
-                # CORRECCIÓN: Filtrar exclusivamente a los estudiantes del grado seleccionado
-                todos_est = supabase.table("estudiantes").select("documento, nombre")\
-                    .eq("grado", ga_rep)\
+                todos_est_raw = supabase.table("estudiantes").select("documento, nombre, grado")\
                     .eq("profe_id", st.session_state.user).order("nombre").execute().data
+
+                # Filtro estricto por el grado seleccionado
+                todos_est = [e for e in todos_est_raw if str(e.get('grado', '')).strip().upper() == ga_rep.strip().upper()]
 
                 asistencia_data = supabase.table("asistencia").select("estudiante_id, fecha, tema")\
                     .eq("grado", ga_rep)\
