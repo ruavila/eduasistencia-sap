@@ -275,6 +275,13 @@ elif menu == "📷 Scanner / Asistencia":
     if 'tema_clase_actual' not in st.session_state:
         st.session_state.tema_clase_actual = ""
 
+    # Función para limpiar el estado al cambiar de curso
+    def resetear_estado_escaneo():
+        for key in list(st.session_state.keys()):
+            if key.startswith("sc_"):
+                del st.session_state[key]
+        st.session_state.captura_finalizada = False
+
     cursos = supabase.table("cursos").select("grado, materia").eq("profe_id", st.session_state.user).execute().data
     
     if cursos:
@@ -283,7 +290,7 @@ elif menu == "📷 Scanner / Asistencia":
             if st.button("🔴 Cerrar Clase", use_container_width=True, help="Limpia la selección actual y el tema"):
                 st.session_state.captura_finalizada = False
                 st.session_state.tema_clase_actual = ""
-                # Restablecer el selector de curso a None para dejarlo sin selección
+                resetear_estado_escaneo()
                 st.session_state["sel_curso_scan"] = None
                 st.rerun()
 
@@ -292,7 +299,6 @@ elif menu == "📷 Scanner / Asistencia":
         with col_c1:
             opciones_cursos = sorted(list(set([f"{str(r['grado']).strip()} | {str(r['materia']).strip()}" for r in cursos])))
             
-            # Inicializar sel_curso_scan en session_state con None para que no haya selección previa
             if "sel_curso_scan" not in st.session_state:
                 st.session_state["sel_curso_scan"] = None
                 
@@ -301,7 +307,8 @@ elif menu == "📷 Scanner / Asistencia":
                 opciones_cursos, 
                 index=None, 
                 placeholder="-- Seleccione un curso --", 
-                key="sel_curso_scan"
+                key="sel_curso_scan",
+                on_change=resetear_estado_escaneo
             )
 
         if sel_as is None:
@@ -333,7 +340,8 @@ elif menu == "📷 Scanner / Asistencia":
                             st.session_state.captura_finalizada = True
                             st.rerun()
                         
-                        cod = qrcode_scanner(key=f"sc_{ga}_{ma}_{periodo_actual}".replace(" ", "_"))
+                        key_scanner = f"sc_{ga}_{ma}_{periodo_actual}".replace(" ", "_")
+                        cod = qrcode_scanner(key=key_scanner)
                         
                         if cod:
                             id_cl = str(cod).strip()
@@ -371,7 +379,12 @@ elif menu == "📷 Scanner / Asistencia":
                                         
                                         st.toast(f"✅ Registrado (P{periodo_actual}): {nom}", icon="👤")
                                         st.success(f"👤 **Estudiante detectado ({ga}):** {nom}")
+                                        
+                                        if key_scanner in st.session_state:
+                                            del st.session_state[key_scanner]
+                                            
                                         time.sleep(0.5)
+                                        st.rerun()
                                     except Exception as e:
                                         st.error(f"Error al guardar asistencia: {e}")
                                 else:
