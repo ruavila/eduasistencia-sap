@@ -6,7 +6,6 @@ import os
 import urllib.parse
 import tempfile
 import time
-import random
 import datetime as dt
 from datetime import datetime, timedelta
 from reportlab.pdfgen import canvas
@@ -23,21 +22,6 @@ DEVELOPER_NAME = "Rubén Darío Ávila Sandoval"
 IE_INITIALS = "I.E. S.A.P."
 COLEGIO = "Institución Educativa San Antonio de Padua"
 ESTADOS_ASISTENCIA = ["Presente", "Ausente", "Excusa Médica", "Permiso Institucional", "Llegada Tardía"]
-
-# Variaciones para evitar bloqueos/filtros de spam de WhatsApp al notificar desde móvil
-SALUDOS_VARIADOS = [
-    "Cordial saludo, señor(a) acudiente.",
-    "Buenos días/tardes, estimado(a) acudiente.",
-    "Un saludo cordial, señor(a) padre/madre de familia.",
-    "Respetado(a) acudiente, le saludamos de la institución."
-]
-
-CIERRES_VARIADOS = [
-    "Agradecemos su atención y seguimiento en casa.",
-    "Quedamos atentos a cualquier justificación o novedad.",
-    "Agradecemos su colaboración con la asistencia del estudiante.",
-    "Favor comunicarse con la institución si requiere más información."
-]
 # ==============================================================================
 
 # --- INTEGRACIÓN CON MÓDULOS ---
@@ -51,178 +35,6 @@ except Exception as e:
     ESCUDO_PATH = os.path.join("assets", "escudo.png") 
 
 IE_INITIALS = "I.E. S.A.P."
-
-# --- FUNCIONES AUXILIARES DE REPORTES ---
-def formatear_fecha_reporte(fecha_str):
-    if not fecha_str: 
-        return ""
-    try:
-        fecha_obj = dt.datetime.strptime(fecha_str, "%Y-%m-%d")
-        return fecha_obj.strftime("%d-%m")
-    except ValueError:
-        return fecha_str
-
-def generar_pdf_reporte(todos_est, asistencia_data, ga_rep, ma_rep, periodo_rep):
-    df_reporte = pd.DataFrame(todos_est)
-    df_reporte['nombre'] = df_reporte['nombre'].str.upper()
-    try:
-        df_reporte['nombre'] = df_reporte['nombre'].str.encode('latin-1', 'ignore').str.decode('latin-1')
-    except Exception:
-        pass
-    df_reporte = df_reporte.set_index('documento')
-    
-    columnas_dinamicas = []
-    reporte_final = df_reporte.copy()
-
-    check_pi_latin = 'V'.encode('latin-1', 'ignore').decode('latin-1')
-
-    if asistencia_data:
-        df_asistencia = pd.DataFrame(asistencia_data)
-        df_asistencia['tema_limpio'] = df_asistencia['tema'].apply(lambda x: x.split(" [")[0].strip() if " [" in str(x) else str(x).strip())
-        df_clases = df_asistencia[['fecha', 'tema_limpio']].drop_duplicates().sort_values('fecha')
-
-        for _, clase in df_clases.iterrows():
-            fecha_fmt = formatear_fecha_reporte(clase['fecha'])
-            tema_raw = clase['tema_limpio']
-            try:
-                tema_latin = tema_raw.encode('latin-1', 'ignore').decode('latin-1')
-                encabezado_col = f"{tema_latin}\n{fecha_fmt}"
-            except Exception:
-                encabezado_col = f"{tema_raw}\n{fecha_fmt}"
-            
-            columnas_dinamicas.append(encabezado_col)
-            reporte_final[encabezado_col] = 'X' 
-
-        for registro in asistencia_data:
-            id_est = registro['estudiante_id']
-            if id_est in reporte_final.index:
-                tema_full = str(registro['tema'])
-                tema_reg = tema_full.split(" [")[0].strip() if " [" in tema_full else tema_full.strip()
-                fecha_fmt_reg = formatear_fecha_reporte(registro['fecha'])
-                
-                try:
-                    tema_latin_reg = tema_reg.encode('latin-1', 'ignore').decode('latin-1')
-                    col_pi = f"{tema_latin_reg}\n{fecha_fmt_reg}"
-                except Exception:
-                    col_pi = f"{tema_reg}\n{fecha_fmt_reg}"
-                
-                if col_pi in reporte_final.columns:
-                    if "[Excusa Médica]" in tema_full:
-                        val_marcar = 'E'
-                    elif "[Permiso Institucional]" in tema_full:
-                        val_marcar = 'P'
-                    elif "[Llegada Tardía]" in tema_full:
-                        val_marcar = 'T'
-                    elif "[Ausente]" in tema_full:
-                        val_marcar = 'X'
-                    else:
-                        val_marcar = check_pi_latin
-                        
-                    reporte_final.loc[id_est, col_pi] = val_marcar
-
-        df_aux = reporte_final[columnas_dinamicas]
-        reporte_final['Asist'] = (df_aux == check_pi_latin).sum(axis=1)
-        reporte_final['Ausen.'] = (df_aux == 'X').sum(axis=1)
-    else:
-        reporte_final['Asist'] = 0
-        reporte_final['Ausen.'] = 0
-
-    reporte_final['Asist'] = reporte_final['Asist'].astype(str)
-    reporte_final['Ausen.'] = reporte_final['Ausen.'].astype(str)
-    
-    reporte_final = reporte_final.reset_index()
-    reporte_final = reporte_final.rename(columns={'nombre': 'ESTUDIANTE'})
-    reporte_final.insert(0, 'N°', range(1, 1 + len(reporte_final)))
-    reporte_final['N°'] = reporte_final['N°'].astype(str)
-
-    pdf = FPDF('L', 'mm', 'Legal')
-    pdf.add_page()
-    pdf.set_margins(10, 10, 10)
-    
-    escudo_path = os.path.join("assets", "escudo.png")
-    if os.path.exists(escudo_path):
-        pdf.image(escudo_path, 10, 8, 25, 25)
-    
-    pdf.set_font("Arial", 'B', 16)
-    if os.path.exists(escudo_path):
-        pdf.set_x(40)
-    
-    pdf.cell(0, 12, "Institución Educativa San Antonio de Padua", 0, 1, 'C')
-    pdf.set_font("Arial", '', 11)
-    if os.path.exists(escudo_path):
-        pdf.set_x(40)
-    
-    pdf.cell(100, 7, f"Materia: {ma_rep}", 0, 0)
-    pdf.cell(80, 7, f"Grado: {ga_rep}", 0, 0)
-    pdf.cell(0, 7, f"Docente: {st.session_state.profe_nom}", 0, 1)
-    
-    if os.path.exists(escudo_path):
-        pdf.set_x(40)
-    
-    pdf.set_font("Arial", 'B', 11)
-    ahora_co = dt.datetime.now() - dt.timedelta(hours=5)
-    pdf.cell(100, 7, f"Fecha Reporte: {ahora_co.strftime('%d/%m/%Y')}", 0, 0)
-    pdf.cell(0, 7, f"Periodo Académico Consultando: {periodo_rep}", 0, 1)
-    
-    pdf.ln(5)
-
-    num_clases = len(columnas_dinamicas)
-    w_num, w_est, w_totales = 12, 70, 18 
-    ancho_usado_fijo = w_num + w_est + (w_totales * 2)
-    ancho_disponible_dinamico = 335 - ancho_usado_fijo
-    
-    w_clase = (ancho_disponible_dinamico / num_clases) if num_clases > 0 else ancho_disponible_dinamico
-
-    pdf.set_font("Arial", 'B', 9)
-    pdf.set_fill_color(240, 240, 240)
-    
-    pdf.cell(w_num, 14, "N°", 1, 0, 'C', 1) 
-    pdf.cell(w_est, 14, "ESTUDIANTE", 1, 0, 'C', 1)
-    
-    x_col, y_col = pdf.get_x(), pdf.get_y()
-    if num_clases > 0:
-        for enc_completo in columnas_dinamicas:
-            pdf.multi_cell(w_clase, 7, enc_completo, 1, 'C', 1)
-            x_col += w_clase
-            pdf.set_xy(x_col, y_col)
-    else:
-        pdf.cell(ancho_disponible_dinamico, 14, "Sin registros de asistencia en este periodo", 1, 0, 'C', 1)
-
-    pdf.cell(w_totales, 14, "Asist", 1, 0, 'C', 1)
-    pdf.cell(w_totales, 14, "Ausen.", 1, 1, 'C', 1)
-
-    pdf.set_font("Arial", '', 9)
-    
-    for _, fila in reporte_final.iterrows():
-        pdf.cell(w_num, 8, fila['N°'], 1, 0, 'C')
-        pdf.cell(w_est, 8, fila['ESTUDIANTE'], 1, 0)
-        
-        if num_clases > 0:
-            for col_din in columnas_dinamicas:
-                pdf.cell(w_clase, 8, fila[col_din], 1, 0, 'C')
-        else:
-            pdf.cell(ancho_disponible_dinamico, 8, "", 1, 0)
-            
-        pdf.cell(w_totales, 8, fila['Asist'], 1, 0, 'C')
-        pdf.cell(w_totales, 8, fila['Ausen.'], 1, 1, 'C')
-        
-        if pdf.get_y() > 180: 
-            pdf.add_page()
-            pdf.set_font("Arial", 'B', 9)
-            pdf.set_fill_color(240, 240, 240)
-            pdf.cell(w_num, 14, "N°", 1, 0, 'C', 1) 
-            pdf.cell(w_est, 14, "ESTUDIANTE", 1, 0, 'C', 1)
-            if num_clases > 0:
-                x_col_pg, y_col_pg = pdf.get_x(), pdf.get_y()
-                for enc_completo_pg in columnas_dinamicas:
-                    pdf.multi_cell(w_clase, 7, enc_completo_pg, 1, 'C', 1)
-                    x_col_pg += w_clase
-                    pdf.set_xy(x_col_pg, y_col_pg)
-            pdf.cell(w_totales, 14, "Asist", 1, 0, 'C', 1)
-            pdf.cell(w_totales, 14, "Ausen.", 1, 1, 'C', 1)
-            pdf.set_font("Arial", '', 9)
-
-    return pdf.output(dest='S')
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title=APP_NAME, layout="wide", initial_sidebar_state="expanded")
@@ -282,7 +94,7 @@ if not st.session_state.logueado:
                             "pregunta_seguridad": preg, "respuesta_seguridad": resp.strip().lower()
                         }).execute()
                         st.success("Cuenta creada exitosamente.")
-                    except Exception: 
+                    except: 
                         st.error("El usuario ya existe.")
                 else: 
                     st.warning("Complete todos los campos.")
@@ -436,7 +248,7 @@ elif menu == "👤 Estudiantes":
                 
                 if os.path.exists(tmp_qr_path):
                     try: os.remove(tmp_qr_path)
-                    except Exception: pass
+                    except: pass
                 
                 col += 1
                 if col >= 3:
@@ -463,6 +275,7 @@ elif menu == "📷 Scanner / Asistencia":
     if 'tema_clase_actual' not in st.session_state:
         st.session_state.tema_clase_actual = ""
 
+    # Función para limpiar el estado al cambiar de curso
     def resetear_estado_escaneo():
         for key in list(st.session_state.keys()):
             if key.startswith("sc_"):
@@ -591,6 +404,7 @@ elif menu == "📷 Scanner / Asistencia":
                         ahora_col = dt.datetime.now() - dt.timedelta(hours=5)
                         hoy_col = ahora_col.strftime("%Y-%m-%d")
                         hora_msj = ahora_col.strftime("%I:%M %p")
+                        saludo = "*Buenos días*" if ahora_col.hour < 12 else ("*Buenas tardes*" if ahora_col.hour < 18 else "*Buenas noches*")
                         
                         todos_est = supabase.table("estudiantes").select("documento, nombre, whatsapp, grado")\
                             .eq("profe_id", st.session_state.user).execute().data
@@ -619,21 +433,15 @@ elif menu == "📷 Scanner / Asistencia":
                                 col_a, col_b = st.columns([3, 1])
                                 col_a.write(f"❌ **{aus['nombre']}**")
                                 
-                                # --- GENERACIÓN DINÁMICA ANTI-SPAM DE WHATSAPP ---
-                                saludo_unico = random.choice(SALUDOS_VARIADOS)
-                                cierre_unico = random.choice(CIERRES_VARIADOS)
-                                marca_tiempo = dt.datetime.now().strftime("%H:%M:%S")
-                                
                                 cuerpo_msj = (
-                                    f"{saludo_unico}\n\n"
+                                    f"{saludo}, señor(a) padre de familia o acudiente. "
                                     f"La Institución Educativa San Antonio de Padua le informa que el estudiante "
                                     f"*{aus['nombre']}* no se presentó el día de hoy a la clase de *{ma}* ({ga}).\n\n"
-                                    f"📌 *Hora de reporte:* {hora_msj}\n"
-                                    f"📖 *Tema tratado:* {tema}\n\n"
-                                    f"{cierre_unico}\n\n"
+                                    f"*Hora de reporte:* {hora_msj}\n"
+                                    f"*Tema tratado:* {tema}.\n\n"
+                                    f"Institucionalmente,\n\n"
                                     f"*Docente:* {st.session_state.profe_nom}\n"
-                                    f"*Área:* {ma}\n"
-                                    f"_Ref: {marca_tiempo}_"
+                                    f"*Área:* {ma}"
                                 )
                                 
                                 msg_encoded = urllib.parse.quote(cuerpo_msj)
@@ -732,8 +540,8 @@ elif menu == "📷 Scanner / Asistencia":
                                 st.warning(f"El estudiante **{nom_m}** ya estaba registrado hoy.")
                     else:
                         st.warning(f"No hay estudiantes registrados para el grado **{ga}**.")
-            else:
-                st.info("Ingresa el **Tema de la clase** en el campo superior antes de seleccionar en lista.")
+                else:
+                    st.info("Ingresa el **Tema de la clase** en el campo superior antes de seleccionar en lista.")
 
             # --- TAB 3: MODIFICAR FECHAS ANTERIORES ---
             with tab_editar:
@@ -844,13 +652,19 @@ elif menu == "📷 Scanner / Asistencia":
 
 # --- 4. SECCIÓN DE REPORTES ---
 elif menu == "📊 Reportes":
+    def formatear_fecha_reporte(fecha_str):
+        if not fecha_str: return ""
+        try:
+            fecha_obj = dt.datetime.strptime(fecha_str, "%Y-%m-%d")
+            return fecha_obj.strftime("%d-%m")
+        except ValueError:
+            return fecha_str
+
     st.subheader("Generación de Reportes Detallados por Periodo (PDF)")
 
     cursos = supabase.table("cursos").select("grado, materia").eq("profe_id", st.session_state.user).execute().data
 
-    if not cursos:
-        st.error("No tienes cursos creados. Ve a la sección de Configuración.")
-    else:
+    if cursos:
         col_r1, col_r2, col_r3 = st.columns([2, 1, 1])
 
         with col_r1:
@@ -879,14 +693,170 @@ elif menu == "📊 Reportes":
                     .eq("periodo", periodo_rep)\
                     .eq("profe_id", st.session_state.user).order("fecha").execute().data
 
-            if not todos_est:
-                st.error(f"No hay estudiantes matriculados en el grado {ga_rep}.")
-            else:
-                pdf_output_bytes = generar_pdf_reporte(todos_est, asistencia_data, ga_rep, ma_rep, periodo_rep)
+            if todos_est:
+                df_reporte = pd.DataFrame(todos_est)
+                df_reporte['nombre'] = df_reporte['nombre'].str.upper()
+                try:
+                    df_reporte['nombre'] = df_reporte['nombre'].str.encode('latin-1', 'ignore').str.decode('latin-1')
+                except: pass
+                df_reporte = df_reporte.set_index('documento')
+                
+                columnas_dinamicas = []
+                reporte_final = df_reporte.copy()
+
+                if asistencia_data:
+                    df_asistencia = pd.DataFrame(asistencia_data)
+                    df_asistencia['tema_limpio'] = df_asistencia['tema'].apply(lambda x: x.split(" [")[0].strip() if " [" in str(x) else str(x).strip())
+                    df_clases = df_asistencia[['fecha', 'tema_limpio']].drop_duplicates().sort_values('fecha')
+
+                    for _, clase in df_clases.iterrows():
+                        fecha_fmt = formatear_fecha_reporte(clase['fecha'])
+                        tema_raw = clase['tema_limpio']
+                        try:
+                            tema_latin = tema_raw.encode('latin-1', 'ignore').decode('latin-1')
+                            encabezado_col = f"{tema_latin}\n{fecha_fmt}"
+                        except:
+                            encabezado_col = f"{tema_raw}\n{fecha_fmt}"
+                        
+                        columnas_dinamicas.append(encabezado_col)
+                        reporte_final[encabezado_col] = 'X' 
+
+                    check_pi_latin = 'V'.encode('latin-1', 'ignore').decode('latin-1')
+                    
+                    for registro in asistencia_data:
+                        id_est = registro['estudiante_id']
+                        if id_est in reporte_final.index:
+                            tema_full = str(registro['tema'])
+                            tema_reg = tema_full.split(" [")[0].strip() if " [" in tema_full else tema_full.strip()
+                            fecha_fmt_reg = formatear_fecha_reporte(registro['fecha'])
+                            
+                            try:
+                                tema_latin_reg = tema_reg.encode('latin-1', 'ignore').decode('latin-1')
+                                col_pi = f"{tema_latin_reg}\n{fecha_fmt_reg}"
+                            except:
+                                col_pi = f"{tema_reg}\n{fecha_fmt_reg}"
+                            
+                            if col_pi in reporte_final.columns:
+                                if "[Excusa Médica]" in tema_full:
+                                    val_marcar = 'E'
+                                elif "[Permiso Institucional]" in tema_full:
+                                    val_marcar = 'P'
+                                elif "[Llegada Tardía]" in tema_full:
+                                    val_marcar = 'T'
+                                elif "[Ausente]" in tema_full:
+                                    val_marcar = 'X'
+                                else:
+                                    val_marcar = check_pi_latin
+                                    
+                                reporte_final.loc[id_est, col_pi] = val_marcar
+
+                    df_aux = reporte_final[columnas_dinamicas]
+                    reporte_final['Asist'] = (df_aux == check_pi_latin).sum(axis=1)
+                    reporte_final['Ausen.'] = (df_aux == 'X').sum(axis=1)
+                else:
+                    reporte_final['Asist'] = 0
+                    reporte_final['Ausen.'] = 0
+
+                reporte_final['Asist'] = reporte_final['Asist'].astype(str)
+                reporte_final['Ausen.'] = reporte_final['Ausen.'].astype(str)
+                
+                reporte_final = reporte_final.reset_index()
+                reporte_final = reporte_final.rename(columns={'nombre': 'ESTUDIANTE'})
+                reporte_final.insert(0, 'N°', range(1, 1 + len(reporte_final)))
+                reporte_final['N°'] = reporte_final['N°'].astype(str)
+
+                pdf = FPDF('L', 'mm', 'Legal')
+                pdf.add_page()
+                pdf.set_margins(10, 10, 10)
+                
+                escudo_path = os.path.join("assets", "escudo.png")
+                if os.path.exists(escudo_path):
+                    pdf.image(escudo_path, 10, 8, 25, 25)
+                
+                pdf.set_font("Arial", 'B', 16)
+                if os.path.exists(escudo_path):
+                    pdf.set_x(40)
+                
+                pdf.cell(0, 12, "Institución Educativa San Antonio de Padua", 0, 1, 'C')
+                pdf.set_font("Arial", '', 11)
+                if os.path.exists(escudo_path):
+                    pdf.set_x(40)
+                
+                pdf.cell(100, 7, f"Materia: {ma_rep}", 0, 0)
+                pdf.cell(80, 7, f"Grado: {ga_rep}", 0, 0)
+                pdf.cell(0, 7, f"Docente: {st.session_state.profe_nom}", 0, 1)
+                
+                if os.path.exists(escudo_path):
+                    pdf.set_x(40)
+                
+                pdf.set_font("Arial", 'B', 11)
                 ahora_co = dt.datetime.now() - dt.timedelta(hours=5)
+                pdf.cell(100, 7, f"Fecha Reporte: {ahora_co.strftime('%d/%m/%Y')}", 0, 0)
+                pdf.cell(0, 7, f"Periodo Académico Consultando: {periodo_rep}", 0, 1)
+                
+                pdf.ln(5)
+
+                num_clases = len(columnas_dinamicas)
+                w_num, w_est, w_totales = 12, 70, 18 
+                ancho_usado_fijo = w_num + w_est + (w_totales * 2)
+                ancho_disponible_dinamico = 335 - ancho_usado_fijo
+                
+                w_clase = (ancho_disponible_dinamico / num_clases) if num_clases > 0 else ancho_disponible_dinamico
+
+                pdf.set_font("Arial", 'B', 9)
+                pdf.set_fill_color(240, 240, 240)
+                
+                pdf.cell(w_num, 14, "N°", 1, 0, 'C', 1) 
+                pdf.cell(w_est, 14, "ESTUDIANTE", 1, 0, 'C', 1)
+                
+                x_col, y_col = pdf.get_x(), pdf.get_y()
+                if num_clases > 0:
+                    for enc_completo in columnas_dinamicas:
+                        pdf.multi_cell(w_clase, 7, enc_completo, 1, 'C', 1)
+                        x_col += w_clase
+                        pdf.set_xy(x_col, y_col)
+                else:
+                    pdf.cell(ancho_disponible_dinamico, 14, "Sin registros de asistencia en este periodo", 1, 0, 'C', 1)
+
+                pdf.cell(w_totales, 14, "Asist", 1, 0, 'C', 1)
+                pdf.cell(w_totales, 14, "Ausen.", 1, 1, 'C', 1)
+
+                pdf.set_font("Arial", '', 9)
+                
+                for _, fila in reporte_final.iterrows():
+                    pdf.cell(w_num, 8, fila['N°'], 1, 0, 'C')
+                    pdf.cell(w_est, 8, fila['ESTUDIANTE'], 1, 0)
+                    
+                    if num_clases > 0:
+                        for col_din in columnas_dinamicas:
+                            pdf.cell(w_clase, 8, fila[col_din], 1, 0, 'C')
+                    else:
+                        pdf.cell(ancho_disponible_dinamico, 8, "", 1, 0)
+                        
+                    pdf.cell(w_totales, 8, fila['Asist'], 1, 0, 'C')
+                    pdf.cell(w_totales, 8, fila['Ausen.'], 1, 1, 'C')
+                    
+                    if pdf.get_y() > 180: 
+                        pdf.add_page()
+                        pdf.set_font("Arial", 'B', 9)
+                        pdf.set_fill_color(240, 240, 240)
+                        pdf.cell(w_num, 14, "N°", 1, 0, 'C', 1) 
+                        pdf.cell(w_est, 14, "ESTUDIANTE", 1, 0, 'C', 1)
+                        if num_clases > 0:
+                            x_col_pg, y_col_pg = pdf.get_x(), pdf.get_y()
+                            for enc_completo_pg in columnas_dinamicas:
+                                pdf.multi_cell(w_clase, 7, enc_completo_pg, 1, 'C', 1)
+                                x_col_pg += w_clase
+                                pdf.set_xy(x_col_pg, y_col_pg)
+                        pdf.cell(w_totales, 14, "Asist", 1, 0, 'C', 1)
+                        pdf.cell(w_totales, 14, "Ausen.", 1, 1, 'C', 1)
+                        pdf.set_font("Arial", '', 9)
+
+                st.info(f"📉 Sábana detallada (P{periodo_rep} - OFICIO/9PT) generada correctamente para {ga_rep} - {ma_rep}.")
+                
+                pdf_output_bytes = pdf.output(dest='S')
                 pdf_file = io.BytesIO(pdf_output_bytes)
                 
-                st.info(f"📉 Sábana detallada (P{periodo_rep} - OFICIO/9PT) generada correctamente para {ga_rep} - {ma_rep}.")
                 st.download_button(
                     label="📥 Descargar Reporte PDF Detallado (Sábana OFICIO 9PT)",
                     data=pdf_file,
@@ -895,6 +865,12 @@ elif menu == "📊 Reportes":
                     use_container_width=True
                 )
 
+            else:
+                st.error(f"No hay estudiantes matriculados en el grado {ga_rep}.")
+
+    else:
+        st.error("No tienes cursos creados. Ve a la sección de Configuración.")
+
 # --- 5. REINICIO Y PANEL ADMIN ---
 elif menu == "⚙️ Reinicio":
     st.subheader("Mantenimiento")
@@ -902,8 +878,7 @@ elif menu == "⚙️ Reinicio":
         supabase.table("asistencia").delete().eq("profe_id", st.session_state.user).execute()
         supabase.table("estudiantes").delete().eq("profe_id", st.session_state.user).execute()
         supabase.table("cursos").delete().eq("profe_id", st.session_state.user).execute()
-        st.success("Datos eliminados correctamente.")
-        st.rerun()
+        st.success("Datos eliminados correctamente."); st.rerun()
 
     st.markdown("<br><br>", unsafe_allow_html=True)
     with st.expander("🛠️ Panel Programador"):
