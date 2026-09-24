@@ -885,7 +885,6 @@ elif menu == "📊 Reportes":
                     mime="application/pdf",
                     use_container_width=True
                 )
-
             else:
                 st.error(f"No hay estudiantes matriculados en el grado {ga_rep}.")
 
