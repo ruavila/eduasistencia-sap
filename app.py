@@ -6,6 +6,7 @@ import os
 import urllib.parse
 import tempfile
 import time
+import random
 import datetime as dt
 from datetime import datetime, timedelta
 from reportlab.pdfgen import canvas
@@ -22,6 +23,21 @@ DEVELOPER_NAME = "Rubén Darío Ávila Sandoval"
 IE_INITIALS = "I.E. S.A.P."
 COLEGIO = "Institución Educativa San Antonio de Padua"
 ESTADOS_ASISTENCIA = ["Presente", "Ausente", "Excusa Médica", "Permiso Institucional", "Llegada Tardía"]
+
+# Variaciones para evitar bloqueos/filtros de spam de WhatsApp al notificar desde móvil
+SALUDOS_VARIADOS = [
+    "Cordial saludo, señor(a) acudiente.",
+    "Buenos días/tardes, estimado(a) acudiente.",
+    "Un saludo cordial, señor(a) padre/madre de familia.",
+    "Respetado(a) acudiente, le saludamos de la institución."
+]
+
+CIERRES_VARIADOS = [
+    "Agradecemos su atención y seguimiento en casa.",
+    "Quedamos atentos a cualquier justificación o novedad.",
+    "Agradecemos su colaboración con la asistencia del estudiante.",
+    "Favor comunicarse con la institución si requiere más información."
+]
 # ==============================================================================
 
 # --- INTEGRACIÓN CON MÓDULOS ---
@@ -404,7 +420,6 @@ elif menu == "📷 Scanner / Asistencia":
                         ahora_col = dt.datetime.now() - dt.timedelta(hours=5)
                         hoy_col = ahora_col.strftime("%Y-%m-%d")
                         hora_msj = ahora_col.strftime("%I:%M %p")
-                        saludo = "*Buenos días*" if ahora_col.hour < 12 else ("*Buenas tardes*" if ahora_col.hour < 18 else "*Buenas noches*")
                         
                         todos_est = supabase.table("estudiantes").select("documento, nombre, whatsapp, grado")\
                             .eq("profe_id", st.session_state.user).execute().data
@@ -433,15 +448,21 @@ elif menu == "📷 Scanner / Asistencia":
                                 col_a, col_b = st.columns([3, 1])
                                 col_a.write(f"❌ **{aus['nombre']}**")
                                 
+                                # --- GENERACIÓN DINÁMICA ANTI-SPAM DE WHATSAPP ---
+                                saludo_unico = random.choice(SALUDOS_VARIADOS)
+                                cierre_unico = random.choice(CIERRES_VARIADOS)
+                                marca_tiempo = dt.datetime.now().strftime("%H:%M:%S")
+                                
                                 cuerpo_msj = (
-                                    f"{saludo}, señor(a) padre de familia o acudiente. "
+                                    f"{saludo_unico}\n\n"
                                     f"La Institución Educativa San Antonio de Padua le informa que el estudiante "
                                     f"*{aus['nombre']}* no se presentó el día de hoy a la clase de *{ma}* ({ga}).\n\n"
-                                    f"*Hora de reporte:* {hora_msj}\n"
-                                    f"*Tema tratado:* {tema}.\n\n"
-                                    f"Institucionalmente,\n\n"
+                                    f"📌 *Hora de reporte:* {hora_msj}\n"
+                                    f"📖 *Tema tratado:* {tema}\n\n"
+                                    f"{cierre_unico}\n\n"
                                     f"*Docente:* {st.session_state.profe_nom}\n"
-                                    f"*Área:* {ma}"
+                                    f"*Área:* {ma}\n"
+                                    f"_Ref: {marca_tiempo}_"
                                 )
                                 
                                 msg_encoded = urllib.parse.quote(cuerpo_msj)
@@ -540,8 +561,8 @@ elif menu == "📷 Scanner / Asistencia":
                                 st.warning(f"El estudiante **{nom_m}** ya estaba registrado hoy.")
                     else:
                         st.warning(f"No hay estudiantes registrados para el grado **{ga}**.")
-                else:
-                    st.info("Ingresa el **Tema de la clase** en el campo superior antes de seleccionar en lista.")
+            else:
+                st.info("Ingresa el **Tema de la clase** en el campo superior antes de seleccionar en lista.")
 
             # --- TAB 3: MODIFICAR FECHAS ANTERIORES ---
             with tab_editar:
