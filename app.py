@@ -291,7 +291,6 @@ elif menu == "📷 Scanner / Asistencia":
     if 'tema_clase_actual' not in st.session_state:
         st.session_state.tema_clase_actual = ""
 
-    # Función para limpiar el estado al cambiar de curso
     def resetear_estado_escaneo():
         for key in list(st.session_state.keys()):
             if key.startswith("sc_"):
@@ -671,7 +670,7 @@ elif menu == "📷 Scanner / Asistencia":
     else:
         st.error("No tienes cursos asignados. Por favor, crea un curso primero en la configuración.")
 
-# --- 4. SECCIÓN DE REPORTES ---
+# --- 4. SECCIÓN DE REPORTES (ESTRUCTURA LINEAL SIN ERRORES DE SINTAXIS) ---
 elif menu == "📊 Reportes":
     def formatear_fecha_reporte(fecha_str):
         if not fecha_str: return ""
@@ -685,7 +684,9 @@ elif menu == "📊 Reportes":
 
     cursos = supabase.table("cursos").select("grado, materia").eq("profe_id", st.session_state.user).execute().data
 
-    if cursos:
+    if not cursos:
+        st.error("No tienes cursos creados. Ve a la sección de Configuración.")
+    else:
         col_r1, col_r2, col_r3 = st.columns([2, 1, 1])
 
         with col_r1:
@@ -714,12 +715,15 @@ elif menu == "📊 Reportes":
                     .eq("periodo", periodo_rep)\
                     .eq("profe_id", st.session_state.user).order("fecha").execute().data
 
-            if todos_est:
+            if not todos_est:
+                st.error(f"No hay estudiantes matriculados en el grado {ga_rep}.")
+            else:
                 df_reporte = pd.DataFrame(todos_est)
                 df_reporte['nombre'] = df_reporte['nombre'].str.upper()
                 try:
                     df_reporte['nombre'] = df_reporte['nombre'].str.encode('latin-1', 'ignore').str.decode('latin-1')
-                except: pass
+                except Exception:
+                    pass
                 df_reporte = df_reporte.set_index('documento')
                 
                 columnas_dinamicas = []
@@ -736,7 +740,7 @@ elif menu == "📊 Reportes":
                         try:
                             tema_latin = tema_raw.encode('latin-1', 'ignore').decode('latin-1')
                             encabezado_col = f"{tema_latin}\n{fecha_fmt}"
-                        except:
+                        except Exception:
                             encabezado_col = f"{tema_raw}\n{fecha_fmt}"
                         
                         columnas_dinamicas.append(encabezado_col)
@@ -754,7 +758,7 @@ elif menu == "📊 Reportes":
                             try:
                                 tema_latin_reg = tema_reg.encode('latin-1', 'ignore').decode('latin-1')
                                 col_pi = f"{tema_latin_reg}\n{fecha_fmt_reg}"
-                            except:
+                            except Exception:
                                 col_pi = f"{tema_reg}\n{fecha_fmt_reg}"
                             
                             if col_pi in reporte_final.columns:
@@ -885,11 +889,6 @@ elif menu == "📊 Reportes":
                     mime="application/pdf",
                     use_container_width=True
                 )
-            else:
-                st.error(f"No hay estudiantes matriculados en el grado {ga_rep}.")
-
-    else:
-        st.error("No tienes cursos creados. Ve a la sección de Configuración.")
 
 # --- 5. REINICIO Y PANEL ADMIN ---
 elif menu == "⚙️ Reinicio":
@@ -898,7 +897,8 @@ elif menu == "⚙️ Reinicio":
         supabase.table("asistencia").delete().eq("profe_id", st.session_state.user).execute()
         supabase.table("estudiantes").delete().eq("profe_id", st.session_state.user).execute()
         supabase.table("cursos").delete().eq("profe_id", st.session_state.user).execute()
-        st.success("Datos eliminados correctamente."); st.rerun()
+        st.success("Datos eliminados correctamente.")
+        st.rerun()
 
     st.markdown("<br><br>", unsafe_allow_html=True)
     with st.expander("🛠️ Panel Programador"):
