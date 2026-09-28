@@ -494,92 +494,53 @@ elif menu == "📷 Scanner / Asistencia":
                         
                         ids_registrados = set(str(r['estudiante_id']).strip() for r in ya_registrados_raw)
 
-                        # ✅ CÓDIGO NUEVO (Filtra y elimina de la lista a los estudiantes ya registrados hoy):
-estudiantes_pendientes = [
-    e for e in estudiantes_curso 
-    if str(e['documento']).strip() not in ids_registrados
-]
+                        # Filtrar solo a los estudiantes que AÚN NO han sido registrados hoy
+                        estudiantes_pendientes = [
+                            e for e in estudiantes_curso 
+                            if str(e['documento']).strip() not in ids_registrados
+                        ]
 
-if estudiantes_pendientes:
-    nombres_estudiantes = [
-        f"{i+1}. {e['nombre']}" 
-        for i, e in enumerate(estudiantes_pendientes)
-    ]
-    
-    est_sel_nombre = st.selectbox(
-        "Seleccione el estudiante a registrar:", 
-        nombres_estudiantes, 
-        key=f"sel_man_{ga}_{ma}".replace(" ", "_")
-    )
-    
-    idx_seleccionado = nombres_estudiantes.index(est_sel_nombre)
-    
-    if st.button("✅ Registrar Asistencia Manual", use_container_width=True, type="primary"):
-        est_sel = estudiantes_pendientes[idx_seleccionado]
-        doc_m, nom_m = str(est_sel['documento']).strip(), est_sel['nombre']
-        
-        tema_guardar = f"{tema} [{estado_sel}]" if estado_sel != "Presente" else tema
-        
-        payload_manual = {
-            "estudiante_id": doc_m, 
-            "fecha": hoy_m, 
-            "hora": ahora_co.strftime("%H:%M:%S"), 
-            "grado": ga, 
-            "materia": ma, 
-            "tema": tema_guardar, 
-            "periodo": periodo_actual,
-            "profe_id": st.session_state.user
-        }
-        
-        supabase.table("asistencia").insert(payload_manual).execute()
-        st.success(f"Guardado como **{estado_sel}**: {nom_m}")
-        time.sleep(0.3)
-        st.rerun()
-else:
-    st.success("🎉 ¡Todos los estudiantes de este curso ya fueron registrados hoy!")
-                        
-                        est_sel_nombre = st.selectbox(
-                            "Seleccione el estudiante a registrar:", 
-                            nombres_estudiantes, 
-                            key=f"sel_man_{ga}_{ma}".replace(" ", "_")
-                        )
-                        
-                        idx_seleccionado = nombres_estudiantes.index(est_sel_nombre)
-                        
-                        if st.button("✅ Registrar Asistencia Manual", use_container_width=True, type="primary"):
-                            est_sel = estudiantes_curso[idx_seleccionado]
-                            doc_m, nom_m = str(est_sel['documento']).strip(), est_sel['nombre']
+                        if estudiantes_pendientes:
+                            nombres_estudiantes = [
+                                f"{i+1}. {e['nombre']}" 
+                                for i, e in enumerate(estudiantes_pendientes)
+                            ]
                             
-                            check_m = supabase.table("asistencia").select("id")\
-                                .eq("estudiante_id", doc_m)\
-                                .eq("fecha", hoy_m)\
-                                .eq("materia", ma)\
-                                .eq("periodo", periodo_actual).execute().data
+                            est_sel_nombre = st.selectbox(
+                                "Seleccione el estudiante a registrar:", 
+                                nombres_estudiantes, 
+                                key=f"sel_man_{ga}_{ma}".replace(" ", "_")
+                            )
                             
-                            tema_guardar = f"{tema} [{estado_sel}]" if estado_sel != "Presente" else tema
+                            idx_seleccionado = nombres_estudiantes.index(est_sel_nombre)
                             
-                            payload_manual = {
-                                "estudiante_id": doc_m, 
-                                "fecha": hoy_m, 
-                                "hora": ahora_co.strftime("%H:%M:%S"), 
-                                "grado": ga, 
-                                "materia": ma, 
-                                "tema": tema_guardar, 
-                                "periodo": periodo_actual,
-                                "profe_id": st.session_state.user
-                            }
-                            
-                            if not check_m:
+                            if st.button("✅ Registrar Asistencia Manual", use_container_width=True, type="primary"):
+                                est_sel = estudiantes_pendientes[idx_seleccionado]
+                                doc_m, nom_m = str(est_sel['documento']).strip(), est_sel['nombre']
+                                
+                                tema_guardar = f"{tema} [{estado_sel}]" if estado_sel != "Presente" else tema
+                                
+                                payload_manual = {
+                                    "estudiante_id": doc_m, 
+                                    "fecha": hoy_m, 
+                                    "hora": ahora_co.strftime("%H:%M:%S"), 
+                                    "grado": ga, 
+                                    "materia": ma, 
+                                    "tema": tema_guardar, 
+                                    "periodo": periodo_actual,
+                                    "profe_id": st.session_state.user
+                                }
+                                
                                 supabase.table("asistencia").insert(payload_manual).execute()
                                 st.success(f"Guardado como **{estado_sel}**: {nom_m}")
-                                time.sleep(0.5)
+                                time.sleep(0.3)
                                 st.rerun()
-                            else:
-                                st.warning(f"El estudiante **{nom_m}** ya estaba registrado hoy.")
+                        else:
+                            st.success("🎉 ¡Todos los estudiantes de este curso ya fueron registrados hoy!")
                     else:
                         st.warning(f"No hay estudiantes registrados para el grado **{ga}**.")
-                else:
-                    st.info("Ingresa el **Tema de la clase** en el campo superior antes de seleccionar en lista.")
+            else:
+                st.info("Ingresa el **Tema de la clase** en el campo superior antes de seleccionar en lista.")
 
             # --- TAB 3: MODIFICAR FECHAS ANTERIORES ---
             with tab_editar:
