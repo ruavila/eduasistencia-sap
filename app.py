@@ -453,7 +453,7 @@ elif menu == "📷 Scanner / Asistencia":
                 else:
                     st.info("Por favor ingresa el **Tema de la clase** arriba para activar el Escáner QR.")
 
-            # --- TAB 2: LISTA MANUAL (CON FILTRADO Y SIN ERRORES DE SANGRÍA) ---
+            # --- TAB 2: LISTA MANUAL ---
             with tab_lista:
                 st.info(f"Registro Manual para **{ga} - {ma}** | Periodo: **{periodo_actual}**")
                 
@@ -494,6 +494,7 @@ elif menu == "📷 Scanner / Asistencia":
                         
                         ids_registrados = set(str(r['estudiante_id']).strip() for r in ya_registrados_raw)
 
+                        # Se filtran únicamente los estudiantes que NO han sido registrados hoy
                         estudiantes_pendientes = [
                             e for e in estudiantes_curso 
                             if str(e['documento']).strip() not in ids_registrados
