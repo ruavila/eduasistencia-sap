@@ -494,11 +494,49 @@ elif menu == "📷 Scanner / Asistencia":
                         
                         ids_registrados = set(str(r['estudiante_id']).strip() for r in ya_registrados_raw)
 
-                        nombres_estudiantes = []
-                        for i, e in enumerate(estudiantes_curso):
-                            doc_clean = str(e['documento']).strip()
-                            marca = "✅ (Ya en lista)" if doc_clean in ids_registrados else "⏳ (Pendiente)"
-                            nombres_estudiantes.append(f"{i+1}. {e['nombre']} — {marca}")
+                        # ✅ CÓDIGO NUEVO (Filtra y elimina de la lista a los estudiantes ya registrados hoy):
+estudiantes_pendientes = [
+    e for e in estudiantes_curso 
+    if str(e['documento']).strip() not in ids_registrados
+]
+
+if estudiantes_pendientes:
+    nombres_estudiantes = [
+        f"{i+1}. {e['nombre']}" 
+        for i, e in enumerate(estudiantes_pendientes)
+    ]
+    
+    est_sel_nombre = st.selectbox(
+        "Seleccione el estudiante a registrar:", 
+        nombres_estudiantes, 
+        key=f"sel_man_{ga}_{ma}".replace(" ", "_")
+    )
+    
+    idx_seleccionado = nombres_estudiantes.index(est_sel_nombre)
+    
+    if st.button("✅ Registrar Asistencia Manual", use_container_width=True, type="primary"):
+        est_sel = estudiantes_pendientes[idx_seleccionado]
+        doc_m, nom_m = str(est_sel['documento']).strip(), est_sel['nombre']
+        
+        tema_guardar = f"{tema} [{estado_sel}]" if estado_sel != "Presente" else tema
+        
+        payload_manual = {
+            "estudiante_id": doc_m, 
+            "fecha": hoy_m, 
+            "hora": ahora_co.strftime("%H:%M:%S"), 
+            "grado": ga, 
+            "materia": ma, 
+            "tema": tema_guardar, 
+            "periodo": periodo_actual,
+            "profe_id": st.session_state.user
+        }
+        
+        supabase.table("asistencia").insert(payload_manual).execute()
+        st.success(f"Guardado como **{estado_sel}**: {nom_m}")
+        time.sleep(0.3)
+        st.rerun()
+else:
+    st.success("🎉 ¡Todos los estudiantes de este curso ya fueron registrados hoy!")
                         
                         est_sel_nombre = st.selectbox(
                             "Seleccione el estudiante a registrar:", 
