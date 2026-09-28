@@ -275,7 +275,6 @@ elif menu == "📷 Scanner / Asistencia":
     if 'tema_clase_actual' not in st.session_state:
         st.session_state.tema_clase_actual = ""
 
-    # Función para limpiar el estado al cambiar de curso
     def resetear_estado_escaneo():
         for key in list(st.session_state.keys()):
             if key.startswith("sc_"):
@@ -453,7 +452,7 @@ elif menu == "📷 Scanner / Asistencia":
                 else:
                     st.info("Por favor ingresa el **Tema de la clase** arriba para activar el Escáner QR.")
 
-            # --- TAB 2: LISTA MANUAL ---
+            # --- TAB 2: LISTA MANUAL (REFORMULADA SIN ERRORES SINTÁCTICOS) ---
             with tab_lista:
                 st.info(f"Registro Manual para **{ga} - {ma}** | Periodo: **{periodo_actual}**")
                 
@@ -485,7 +484,9 @@ elif menu == "📷 Scanner / Asistencia":
                         else:
                             st.warning(f"No hay estudiantes etiquetados exactamente con el grado '{ga_objetivo}'.")
 
-                    if estudiantes_curso:
+                    if not estudiantes_curso:
+                        st.warning(f"No hay estudiantes registrados para el grado **{ga}**.")
+                    else:
                         ya_registrados_raw = supabase.table("asistencia").select("estudiante_id")\
                             .eq("grado", ga)\
                             .eq("materia", ma)\
@@ -494,13 +495,15 @@ elif menu == "📷 Scanner / Asistencia":
                         
                         ids_registrados = set(str(r['estudiante_id']).strip() for r in ya_registrados_raw)
 
-                        # Se filtran únicamente los estudiantes que NO han sido registrados hoy
+                        # Se filtran los estudiantes que AÚN NO han sido registrados hoy
                         estudiantes_pendientes = [
                             e for e in estudiantes_curso 
                             if str(e['documento']).strip() not in ids_registrados
                         ]
 
-                        if estudiantes_pendientes:
+                        if not estudiantes_pendientes:
+                            st.success("🎉 ¡Todos los estudiantes de este curso ya fueron registrados hoy!")
+                        else:
                             nombres_estudiantes = [
                                 f"{i+1}. {e['nombre']}" 
                                 for i, e in enumerate(estudiantes_pendientes)
@@ -518,12 +521,6 @@ elif menu == "📷 Scanner / Asistencia":
                                 est_sel = estudiantes_pendientes[idx_seleccionado]
                                 doc_m, nom_m = str(est_sel['documento']).strip(), est_sel['nombre']
                                 
-                                check_m = supabase.table("asistencia").select("id")\
-                                    .eq("estudiante_id", doc_m)\
-                                    .eq("fecha", hoy_m)\
-                                    .eq("materia", ma)\
-                                    .eq("periodo", periodo_actual).execute().data
-                                
                                 tema_guardar = f"{tema} [{estado_sel}]" if estado_sel != "Presente" else tema
                                 
                                 payload_manual = {
@@ -537,19 +534,12 @@ elif menu == "📷 Scanner / Asistencia":
                                     "profe_id": st.session_state.user
                                 }
                                 
-                                if not check_m:
-                                    supabase.table("asistencia").insert(payload_manual).execute()
-                                    st.success(f"Guardado como **{estado_sel}**: {nom_m}")
-                                    time.sleep(0.3)
-                                    st.rerun()
-                                else:
-                                    st.warning(f"El estudiante **{nom_m}** ya estaba registrado hoy.")
-                        else:
-                            st.success("🎉 ¡Todos los estudiantes de este curso ya fueron registrados hoy!")
-                    else:
-                        st.warning(f"No hay estudiantes registrados para el grado **{ga}**.")
-            else:
-                st.info("Ingresa el **Tema de la clase** en el campo superior antes de seleccionar en lista.")
+                                supabase.table("asistencia").insert(payload_manual).execute()
+                                st.success(f"Guardado como **{estado_sel}**: {nom_m}")
+                                time.sleep(0.3)
+                                st.rerun()
+                else:
+                    st.info("Ingresa el **Tema de la clase** en el campo superior antes de seleccionar en lista.")
 
             # --- TAB 3: MODIFICAR FECHAS ANTERIORES ---
             with tab_editar:
