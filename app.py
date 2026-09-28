@@ -17,7 +17,7 @@ from fpdf import FPDF
 # ==============================================================================
 # --- CONSTANTES GLOBALES ---
 APP_NAME = "EduAsistencia-Pro"
-APP_VERSION = "v2.2.1"
+APP_VERSION = "v2.2.2"
 DEVELOPER_NAME = "Rubén Darío Ávila Sandoval"
 IE_INITIALS = "I.E. S.A.P."
 COLEGIO = "Institución Educativa San Antonio de Padua"
@@ -160,6 +160,31 @@ except Exception:
 
 st.divider()
 
+# --- HELPER FUNCTION: FILTRAR ESTUDIANTES ÚNICOS ---
+def obtener_estudiantes_unicos(grado_sel):
+    """Obtiene y depura la lista de estudiantes para evitar registros duplicados."""
+    todos_est_raw = supabase.table("estudiantes").select("documento, nombre, grado, whatsapp")\
+        .eq("profe_id", st.session_state.user).execute().data
+    
+    ga_objetivo = str(grado_sel).strip().upper()
+    estudiantes_unicos = []
+    docs_vistos = set()
+    
+    # Ordenar alfabéticamente por nombre
+    est_ordenados = sorted(todos_est_raw, key=lambda x: str(x.get('nombre', '')).strip().upper())
+    
+    for e in est_ordenados:
+        grado_est = str(e.get('grado', '')).strip().upper()
+        doc_est = str(e.get('documento', '')).strip()
+        
+        if grado_est == ga_objetivo and doc_est and doc_est not in docs_vistos:
+            docs_vistos.add(doc_est)
+            # Normalizar nombre y campos de texto
+            e['nombre'] = str(e.get('nombre', '')).strip().upper()
+            estudiantes_unicos.append(e)
+            
+    return estudiantes_unicos
+
 # --- 1. CURSOS ---
 if menu == "📚 Cursos":
     st.subheader("Configuración de Cursos")
@@ -183,7 +208,7 @@ if menu == "📚 Cursos":
                 supabase.table("cursos").delete().eq("id", r['id']).execute()
                 st.rerun()
 
-# --- 2. ESTUDIANTES Y CARNETS ---
+# --- 2. ESTUDIANTES Y CARNETS (CON CONTROL ANTIDUPLICADOS) ---
 elif menu == "👤 Estudiantes":
     st.subheader("Carga de Estudiantes y Carnetización")
     import uuid
@@ -206,6 +231,9 @@ elif menu == "👤 Estudiantes":
             
             x, y, col = 1.5*cm, alto_pg - 5*cm, 0
             
+            # Control local de duplicados en el mismo archivo cargado
+            docs_procesados = set()
+            
             for index, r in df.iterrows():
                 id_base = str(r.get('estudiante_id', r.get('documento', r.get('id', '')))).split('.')[0].strip()
                 
@@ -213,6 +241,11 @@ elif menu == "👤 Estudiantes":
                     e_id = f"EST-{uuid.uuid4().hex[:8].upper()}"
                 else:
                     e_id = f"{gs.replace(' ', '')}-{id_base}"
+                
+                # Prevenir duplicación en el ciclo de carga
+                if e_id in docs_procesados:
+                    continue
+                docs_procesados.add(e_id)
                 
                 e_nm = str(r.get('nombre', '')).upper().strip()
                 e_ws = "".join(filter(str.isdigit, str(r.get('whatsapp', '')))).split('.')[0]
@@ -263,7 +296,7 @@ elif menu == "👤 Estudiantes":
                     x, y, col = 1.5*cm, alto_pg - 5*cm, 0
                 
             canv.save()
-            st.success(f"Se generaron carnets para {len(df)} estudiantes en formato Carta.")
+            st.success(f"Se procesaron {len(docs_procesados)} estudiantes únicos y se generaron sus carnets.")
             st.download_button("📥 Descargar Carnets", pdf.getvalue(), f"Carnets_{gs}.pdf")
 
 # --- 3. SCANNER QR, LISTA MANUAL Y MODIFICACIÓN ---
@@ -405,11 +438,7 @@ elif menu == "📷 Scanner / Asistencia":
                         hora_msj = ahora_col.strftime("%I:%M %p")
                         saludo = "*Buenos días*" if ahora_col.hour < 12 else ("*Buenas tardes*" if ahora_col.hour < 18 else "*Buenas noches*")
                         
-                        todos_est = supabase.table("estudiantes").select("documento, nombre, whatsapp, grado")\
-                            .eq("profe_id", st.session_state.user).execute().data
-                        
-                        estudiantes_curso = [e for e in todos_est if str(e.get('grado', '')).strip().upper() == ga.upper()]
-                        estudiantes_curso = sorted(estudiantes_curso, key=lambda x: x['nombre'])
+                        estudiantes_curso = obtener_estudiantes_unicos(ga)
                         
                         asistieron_raw = supabase.table("asistencia").select("estudiante_id, tema")\
                             .eq("grado", ga)\
@@ -452,7 +481,7 @@ elif menu == "📷 Scanner / Asistencia":
                 else:
                     st.info("Por favor ingresa el **Tema de la clase** arriba para activar el Escáner QR.")
 
-            # --- TAB 2: LISTA MANUAL (REFORMULADA SIN ERRORES SINTÁCTICOS) ---
+            # --- TAB 2: LISTA MANUAL (GARANTIZADO SIN DUPLICADOS) ---
             with tab_lista:
                 st.info(f"Registro Manual para **{ga} - {ma}** | Periodo: **{periodo_actual}**")
                 
@@ -462,27 +491,15 @@ elif menu == "📷 Scanner / Asistencia":
                     
                     estado_sel = st.selectbox("Estado del Registro:", ESTADOS_ASISTENCIA, index=0, key="sel_est_manual")
                     
-                    todos_est_raw = supabase.table("estudiantes").select("documento, nombre, grado")\
-                        .eq("profe_id", st.session_state.user).execute().data
-                    
-                    ga_objetivo = ga.strip().upper()
-                    estudiantes_curso = []
-                    vistos = set()
-                    
-                    for e in sorted(todos_est_raw, key=lambda x: str(x.get('nombre', ''))):
-                        grado_est = str(e.get('grado', '')).strip().upper()
-                        nom_est = str(e.get('nombre', '')).strip().upper()
-                        
-                        if grado_est == ga_objetivo and nom_est not in vistos:
-                            vistos.add(nom_est)
-                            estudiantes_curso.append(e)
+                    # Llamada a la función depuradora de estudiantes únicos
+                    estudiantes_curso = obtener_estudiantes_unicos(ga)
 
                     with st.expander("🔍 Herramienta de Inspección de Estudiantes", expanded=False):
-                        st.caption(f"Mostrando estudiantes asignados exactamente al grado **{ga_objetivo}**:")
+                        st.caption(f"Mostrando **{len(estudiantes_curso)}** estudiantes asignados exactamente al grado **{ga}**:")
                         if estudiantes_curso:
                             st.dataframe(pd.DataFrame(estudiantes_curso)[['documento', 'nombre', 'grado']])
                         else:
-                            st.warning(f"No hay estudiantes etiquetados exactamente con el grado '{ga_objetivo}'.")
+                            st.warning(f"No hay estudiantes etiquetados exactamente con el grado '{ga}'.")
 
                     if not estudiantes_curso:
                         st.warning(f"No hay estudiantes registrados para el grado **{ga}**.")
@@ -495,7 +512,7 @@ elif menu == "📷 Scanner / Asistencia":
                         
                         ids_registrados = set(str(r['estudiante_id']).strip() for r in ya_registrados_raw)
 
-                        # Se filtran los estudiantes que AÚN NO han sido registrados hoy
+                        # Filtrar solo a los estudiantes que AÚN NO han sido registrados hoy
                         estudiantes_pendientes = [
                             e for e in estudiantes_curso 
                             if str(e['documento']).strip() not in ids_registrados
@@ -510,7 +527,7 @@ elif menu == "📷 Scanner / Asistencia":
                             ]
                             
                             est_sel_nombre = st.selectbox(
-                                "Seleccione el estudiante a registrar:", 
+                                f"Seleccione el estudiante ({len(estudiantes_pendientes)} pendientes de {len(estudiantes_curso)}):", 
                                 nombres_estudiantes, 
                                 key=f"sel_man_{ga}_{ma}".replace(" ", "_")
                             )
@@ -569,11 +586,7 @@ elif menu == "📷 Scanner / Asistencia":
 
                     st.markdown(f"📖 **Tema de la Clase Seleccionada:** *{tema_original}*")
 
-                    todos_est_raw = supabase.table("estudiantes").select("documento, nombre, grado")\
-                        .eq("profe_id", st.session_state.user).execute().data
-                    
-                    estudiantes_curso = [e for e in todos_est_raw if str(e.get('grado', '')).strip().upper() == ga.strip().upper()]
-                    estudiantes_curso = sorted(estudiantes_curso, key=lambda x: x['nombre'])
+                    estudiantes_curso = obtener_estudiantes_unicos(ga)
 
                     if estudiantes_curso:
                         registros_existentes = supabase.table("asistencia").select("id, estudiante_id, tema")\
@@ -680,10 +693,7 @@ elif menu == "📊 Reportes":
 
         if btn_generar:
             with st.spinner(f"Generando sábana detallada de {ga_rep} ({ma_rep}) - Periodo {periodo_rep}..."):
-                todos_est_raw = supabase.table("estudiantes").select("documento, nombre, grado")\
-                    .eq("profe_id", st.session_state.user).order("nombre").execute().data
-
-                todos_est = [e for e in todos_est_raw if str(e.get('grado', '')).strip().upper() == ga_rep.strip().upper()]
+                todos_est = obtener_estudiantes_unicos(ga_rep)
 
                 asistencia_data = supabase.table("asistencia").select("estudiante_id, fecha, tema")\
                     .eq("grado", ga_rep)\
