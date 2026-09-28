@@ -446,7 +446,7 @@ elif menu == "📷 Scanner / Asistencia":
                                 
                                 msg_encoded = urllib.parse.quote(cuerpo_msj)
                                 num_wa = str(aus.get('whatsapp', '')).strip()
-                                link_wa = f"https://wa.me/57{num_wa}?text={msg_encoded}"
+                                link_wa = f"https://api.whatsapp.com/send?phone=57{num_wa}&text={msg_encoded}"
                                 col_b.markdown(f"[📲 Notificar]({link_wa})")
                         else:
                             st.success("🎉 ¡No hay reportes de inasistencia pendientes hoy!")
