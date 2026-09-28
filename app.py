@@ -453,7 +453,7 @@ elif menu == "📷 Scanner / Asistencia":
                 else:
                     st.info("Por favor ingresa el **Tema de la clase** arriba para activar el Escáner QR.")
 
-            # --- TAB 2: LISTA MANUAL ---
+            # --- TAB 2: LISTA MANUAL (CON FILTRADO Y SIN ERRORES DE SANGRÍA) ---
             with tab_lista:
                 st.info(f"Registro Manual para **{ga} - {ma}** | Periodo: **{periodo_actual}**")
                 
@@ -494,7 +494,6 @@ elif menu == "📷 Scanner / Asistencia":
                         
                         ids_registrados = set(str(r['estudiante_id']).strip() for r in ya_registrados_raw)
 
-                        # Filtrar solo a los estudiantes que AÚN NO han sido registrados hoy
                         estudiantes_pendientes = [
                             e for e in estudiantes_curso 
                             if str(e['documento']).strip() not in ids_registrados
@@ -518,6 +517,12 @@ elif menu == "📷 Scanner / Asistencia":
                                 est_sel = estudiantes_pendientes[idx_seleccionado]
                                 doc_m, nom_m = str(est_sel['documento']).strip(), est_sel['nombre']
                                 
+                                check_m = supabase.table("asistencia").select("id")\
+                                    .eq("estudiante_id", doc_m)\
+                                    .eq("fecha", hoy_m)\
+                                    .eq("materia", ma)\
+                                    .eq("periodo", periodo_actual).execute().data
+                                
                                 tema_guardar = f"{tema} [{estado_sel}]" if estado_sel != "Presente" else tema
                                 
                                 payload_manual = {
@@ -531,10 +536,13 @@ elif menu == "📷 Scanner / Asistencia":
                                     "profe_id": st.session_state.user
                                 }
                                 
-                                supabase.table("asistencia").insert(payload_manual).execute()
-                                st.success(f"Guardado como **{estado_sel}**: {nom_m}")
-                                time.sleep(0.3)
-                                st.rerun()
+                                if not check_m:
+                                    supabase.table("asistencia").insert(payload_manual).execute()
+                                    st.success(f"Guardado como **{estado_sel}**: {nom_m}")
+                                    time.sleep(0.3)
+                                    st.rerun()
+                                else:
+                                    st.warning(f"El estudiante **{nom_m}** ya estaba registrado hoy.")
                         else:
                             st.success("🎉 ¡Todos los estudiantes de este curso ya fueron registrados hoy!")
                     else:
