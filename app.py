@@ -420,7 +420,7 @@ elif menu == "📷 Scanner / Asistencia":
                                     except Exception as e:
                                         st.error(f"Error al guardar asistencia: {e}")
                                 else:
-                                    st.toast(f"ℹ️ {nom} ya registrado hoy", icon="✅")
+                                    st.toast(f"ℹ️️ {nom} ya registrado hoy", icon="✅")
                                     st.warning(f"El estudiante **{nom}** ya fue registrado previamente hoy.")
                             else:
                                 st.toast(f"⚠️ Código {id_cl} no asignado a {ga}", icon="❌")
@@ -457,7 +457,7 @@ elif menu == "📷 Scanner / Asistencia":
                         
                         if ausentes:
                             st.write(f"Total ausentes: **{len(ausentes)}** de **{len(estudiantes_curso)}** matriculados.")
-                            for aus in ausentes:
+                            for idx_aus, aus in enumerate(ausentes):
                                 col_a, col_b = st.columns([3, 1])
                                 col_a.write(f"❌ **{aus['nombre']}**")
                                 
@@ -475,7 +475,13 @@ elif menu == "📷 Scanner / Asistencia":
                                 msg_encoded = urllib.parse.quote(cuerpo_msj)
                                 num_wa = str(aus.get('whatsapp', '')).strip()
                                 link_wa = f"https://api.whatsapp.com/send?phone=57{num_wa}&text={msg_encoded}"
-                                col_b.markdown(f"[📲 Notificar]({link_wa})")
+                                
+                                # --- MODIFICACIÓN CORREGIDA CON KEY ÚNICO Y APERTURA EN PESTAÑA NUEVA ---
+                                key_link = f"link_wa_{aus['documento']}_{idx_aus}"
+                                col_b.markdown(
+                                    f'<a href="{link_wa}" target="_blank" id="{key_link}" style="text-decoration: none; background-color: #25D366; color: white; padding: 6px 12px; border-radius: 5px; font-weight: bold; display: inline-block;">📲 Notificar</a>',
+                                    unsafe_allow_html=True
+                                )
                         else:
                             st.success("🎉 ¡No hay reportes de inasistencia pendientes hoy!")
                 else:
@@ -882,7 +888,7 @@ elif menu == "📊 Reportes":
 # --- 5. REINICIO Y PANEL ADMIN ---
 elif menu == "⚙️ Reinicio":
     st.subheader("Mantenimiento")
-    if st.button("⚠️ BORRAR MIS DATOS"):
+    if st.button("⚠️️ BORRAR MIS DATOS"):
         supabase.table("asistencia").delete().eq("profe_id", st.session_state.user).execute()
         supabase.table("estudiantes").delete().eq("profe_id", st.session_state.user).execute()
         supabase.table("cursos").delete().eq("profe_id", st.session_state.user).execute()
