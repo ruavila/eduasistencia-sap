@@ -39,10 +39,29 @@ IE_INITIALS = "I.E. S.A.P."
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title=APP_NAME, layout="wide", initial_sidebar_state="expanded")
 
+# --- INICIALIZACIÓN DE ESTADOS GLOBALES DE SESIÓN ---
 if 'logueado' not in st.session_state: 
     st.session_state.logueado = False
 if 'captura_finalizada' not in st.session_state: 
     st.session_state.captura_finalizada = False
+if 'tema_clase_actual' not in st.session_state:
+    st.session_state.tema_clase_actual = ""
+if 'sel_curso_scan' not in st.session_state:
+    st.session_state.sel_curso_scan = None
+
+def resetear_estado_escaneo():
+    """Limpia variables temporales asociadas al escáner e inactiva captura."""
+    for key in list(st.session_state.keys()):
+        if key.startswith("sc_"):
+            del st.session_state[key]
+    st.session_state.captura_finalizada = False
+
+def cerrar_clase_actual():
+    """Restablece completamente la sesión de la clase activa."""
+    st.session_state.captura_finalizada = False
+    st.session_state.tema_clase_actual = ""
+    st.session_state.sel_curso_scan = None
+    resetear_estado_escaneo()
 
 # --- BLOQUE 1: AUTENTICACIÓN Y RECUPERACIÓN ---
 if not st.session_state.logueado:
@@ -179,11 +198,17 @@ def obtener_estudiantes_unicos(grado_sel):
         
         if grado_est == ga_objetivo and doc_est and doc_est not in docs_vistos:
             docs_vistos.add(doc_est)
-            # Normalizar nombre y campos de texto
             e['nombre'] = str(e.get('nombre', '')).strip().upper()
             estudiantes_unicos.append(e)
             
     return estudiantes_unicos
+
+# --- HELPER FUNCTION: SANITIZAR TEXTO PARA FPDF (LATIN-1) ---
+def clean_latin1(texto):
+    """Convierte cadenas de texto a formato seguro compatible con FPDF (latin-1)."""
+    if not texto:
+        return ""
+    return str(texto).encode('latin-1', 'ignore').decode('latin-1')
 
 # --- 1. CURSOS ---
 if menu == "📚 Cursos":
@@ -208,7 +233,7 @@ if menu == "📚 Cursos":
                 supabase.table("cursos").delete().eq("id", r['id']).execute()
                 st.rerun()
 
-# --- 2. ESTUDIANTES Y CARNETS (CON CONTROL ANTIDUPLICADOS) ---
+# --- 2. ESTUDIANTES Y CARNETS ---
 elif menu == "👤 Estudiantes":
     st.subheader("Carga de Estudiantes y Carnetización")
     import uuid
@@ -230,8 +255,6 @@ elif menu == "👤 Estudiantes":
             ancho_pg, alto_pg = letter
             
             x, y, col = 1.5*cm, alto_pg - 5*cm, 0
-            
-            # Control local de duplicados en el mismo archivo cargado
             docs_procesados = set()
             
             for index, r in df.iterrows():
@@ -242,7 +265,6 @@ elif menu == "👤 Estudiantes":
                 else:
                     e_id = f"{gs.replace(' ', '')}-{id_base}"
                 
-                # Prevenir duplicación en el ciclo de carga
                 if e_id in docs_procesados:
                     continue
                 docs_procesados.add(e_id)
@@ -303,27 +325,13 @@ elif menu == "👤 Estudiantes":
 elif menu == "📷 Scanner / Asistencia":
     st.subheader("Captura y Gestión de Asistencia por Periodo")
     
-    if 'captura_finalizada' not in st.session_state:
-        st.session_state.captura_finalizada = False
-    if 'tema_clase_actual' not in st.session_state:
-        st.session_state.tema_clase_actual = ""
-
-    def resetear_estado_escaneo():
-        for key in list(st.session_state.keys()):
-            if key.startswith("sc_"):
-                del st.session_state[key]
-        st.session_state.captura_finalizada = False
-
     cursos = supabase.table("cursos").select("grado, materia").eq("profe_id", st.session_state.user).execute().data
     
     if cursos:
         col_tit, col_btn_cerrar = st.columns([3, 1])
         with col_btn_cerrar:
             if st.button("🔴 Cerrar Clase", use_container_width=True, help="Limpia la selección actual y el tema"):
-                st.session_state.captura_finalizada = False
-                st.session_state.tema_clase_actual = ""
-                resetear_estado_escaneo()
-                st.session_state["sel_curso_scan"] = None
+                cerrar_clase_actual()
                 st.rerun()
 
         col_c1, col_c2 = st.columns([2, 1])
@@ -331,9 +339,6 @@ elif menu == "📷 Scanner / Asistencia":
         with col_c1:
             opciones_cursos = sorted(list(set([f"{str(r['grado']).strip()} | {str(r['materia']).strip()}" for r in cursos])))
             
-            if "sel_curso_scan" not in st.session_state:
-                st.session_state["sel_curso_scan"] = None
-                
             sel_as = st.selectbox(
                 "Curso:", 
                 opciones_cursos, 
@@ -420,7 +425,7 @@ elif menu == "📷 Scanner / Asistencia":
                                     except Exception as e:
                                         st.error(f"Error al guardar asistencia: {e}")
                                 else:
-                                    st.toast(f"ℹ️️ {nom} ya registrado hoy", icon="✅")
+                                    st.toast(f"ℹ {nom} ya registrado hoy", icon="✅")
                                     st.warning(f"El estudiante **{nom}** ya fue registrado previamente hoy.")
                             else:
                                 st.toast(f"⚠️ Código {id_cl} no asignado a {ga}", icon="❌")
@@ -476,18 +481,14 @@ elif menu == "📷 Scanner / Asistencia":
                                 num_wa = str(aus.get('whatsapp', '')).strip()
                                 link_wa = f"https://api.whatsapp.com/send?phone=57{num_wa}&text={msg_encoded}"
                                 
-                                # --- MODIFICACIÓN CORREGIDA CON KEY ÚNICO Y APERTURA EN PESTAÑA NUEVA ---
-                                key_link = f"link_wa_{aus['documento']}_{idx_aus}"
-                                col_b.markdown(
-                                    f'<a href="{link_wa}" target="_blank" id="{key_link}" style="text-decoration: none; background-color: #25D366; color: white; padding: 6px 12px; border-radius: 5px; font-weight: bold; display: inline-block;">📲 Notificar</a>',
-                                    unsafe_allow_html=True
-                                )
+                                with col_b:
+                                    st.link_button("📲 Notificar", link_wa, use_container_width=True)
                         else:
                             st.success("🎉 ¡No hay reportes de inasistencia pendientes hoy!")
                 else:
                     st.info("Por favor ingresa el **Tema de la clase** arriba para activar el Escáner QR.")
 
-            # --- TAB 2: LISTA MANUAL (GARANTIZADO SIN DUPLICADOS) ---
+            # --- TAB 2: LISTA MANUAL ---
             with tab_lista:
                 st.info(f"Registro Manual para **{ga} - {ma}** | Periodo: **{periodo_actual}**")
                 
@@ -497,7 +498,6 @@ elif menu == "📷 Scanner / Asistencia":
                     
                     estado_sel = st.selectbox("Estado del Registro:", ESTADOS_ASISTENCIA, index=0, key="sel_est_manual")
                     
-                    # Llamada a la función depuradora de estudiantes únicos
                     estudiantes_curso = obtener_estudiantes_unicos(ga)
 
                     with st.expander("🔍 Herramienta de Inspección de Estudiantes", expanded=False):
@@ -518,7 +518,6 @@ elif menu == "📷 Scanner / Asistencia":
                         
                         ids_registrados = set(str(r['estudiante_id']).strip() for r in ya_registrados_raw)
 
-                        # Filtrar solo a los estudiantes que AÚN NO han sido registrados hoy
                         estudiantes_pendientes = [
                             e for e in estudiantes_curso 
                             if str(e['documento']).strip() not in ids_registrados
@@ -709,14 +708,13 @@ elif menu == "📊 Reportes":
 
             if todos_est:
                 df_reporte = pd.DataFrame(todos_est)
-                df_reporte['nombre'] = df_reporte['nombre'].str.upper()
-                try:
-                    df_reporte['nombre'] = df_reporte['nombre'].str.encode('latin-1', 'ignore').str.decode('latin-1')
-                except: pass
+                df_reporte['nombre'] = df_reporte['nombre'].apply(clean_latin1)
                 df_reporte = df_reporte.set_index('documento')
                 
                 columnas_dinamicas = []
                 reporte_final = df_reporte.copy()
+
+                check_pi_latin = clean_latin1('V')
 
                 if asistencia_data:
                     df_asistencia = pd.DataFrame(asistencia_data)
@@ -725,18 +723,12 @@ elif menu == "📊 Reportes":
 
                     for _, clase in df_clases.iterrows():
                         fecha_fmt = formatear_fecha_reporte(clase['fecha'])
-                        tema_raw = clase['tema_limpio']
-                        try:
-                            tema_latin = tema_raw.encode('latin-1', 'ignore').decode('latin-1')
-                            encabezado_col = f"{tema_latin}\n{fecha_fmt}"
-                        except:
-                            encabezado_col = f"{tema_raw}\n{fecha_fmt}"
+                        tema_clean = clean_latin1(clase['tema_limpio'])
+                        encabezado_col = f"{tema_clean}\n{fecha_fmt}"
                         
                         columnas_dinamicas.append(encabezado_col)
                         reporte_final[encabezado_col] = 'X' 
 
-                    check_pi_latin = 'V'.encode('latin-1', 'ignore').decode('latin-1')
-                    
                     for registro in asistencia_data:
                         id_est = registro['estudiante_id']
                         if id_est in reporte_final.index:
@@ -744,11 +736,7 @@ elif menu == "📊 Reportes":
                             tema_reg = tema_full.split(" [")[0].strip() if " [" in tema_full else tema_full.strip()
                             fecha_fmt_reg = formatear_fecha_reporte(registro['fecha'])
                             
-                            try:
-                                tema_latin_reg = tema_reg.encode('latin-1', 'ignore').decode('latin-1')
-                                col_pi = f"{tema_latin_reg}\n{fecha_fmt_reg}"
-                            except:
-                                col_pi = f"{tema_reg}\n{fecha_fmt_reg}"
+                            col_pi = f"{clean_latin1(tema_reg)}\n{fecha_fmt_reg}"
                             
                             if col_pi in reporte_final.columns:
                                 if "[Excusa Médica]" in tema_full:
@@ -791,14 +779,14 @@ elif menu == "📊 Reportes":
                 if os.path.exists(escudo_path):
                     pdf.set_x(40)
                 
-                pdf.cell(0, 12, "Institución Educativa San Antonio de Padua", 0, 1, 'C')
+                pdf.cell(0, 12, clean_latin1("Institución Educativa San Antonio de Padua"), 0, 1, 'C')
                 pdf.set_font("Arial", '', 11)
                 if os.path.exists(escudo_path):
                     pdf.set_x(40)
                 
-                pdf.cell(100, 7, f"Materia: {ma_rep}", 0, 0)
-                pdf.cell(80, 7, f"Grado: {ga_rep}", 0, 0)
-                pdf.cell(0, 7, f"Docente: {st.session_state.profe_nom}", 0, 1)
+                pdf.cell(100, 7, clean_latin1(f"Materia: {ma_rep}"), 0, 0)
+                pdf.cell(80, 7, clean_latin1(f"Grado: {ga_rep}"), 0, 0)
+                pdf.cell(0, 7, clean_latin1(f"Docente: {st.session_state.profe_nom}"), 0, 1)
                 
                 if os.path.exists(escudo_path):
                     pdf.set_x(40)
@@ -806,7 +794,7 @@ elif menu == "📊 Reportes":
                 pdf.set_font("Arial", 'B', 11)
                 ahora_co = dt.datetime.now() - dt.timedelta(hours=5)
                 pdf.cell(100, 7, f"Fecha Reporte: {ahora_co.strftime('%d/%m/%Y')}", 0, 0)
-                pdf.cell(0, 7, f"Periodo Académico Consultando: {periodo_rep}", 0, 1)
+                pdf.cell(0, 7, clean_latin1(f"Periodo Académico Consultando: {periodo_rep}"), 0, 1)
                 
                 pdf.ln(5)
 
@@ -830,7 +818,7 @@ elif menu == "📊 Reportes":
                         x_col += w_clase
                         pdf.set_xy(x_col, y_col)
                 else:
-                    pdf.cell(ancho_disponible_dinamico, 14, "Sin registros de asistencia en este periodo", 1, 0, 'C', 1)
+                    pdf.cell(ancho_disponible_dinamico, 14, clean_latin1("Sin registros de asistencia en este periodo"), 1, 0, 'C', 1)
 
                 pdf.cell(w_totales, 14, "Asist", 1, 0, 'C', 1)
                 pdf.cell(w_totales, 14, "Ausen.", 1, 1, 'C', 1)
@@ -888,11 +876,12 @@ elif menu == "📊 Reportes":
 # --- 5. REINICIO Y PANEL ADMIN ---
 elif menu == "⚙️ Reinicio":
     st.subheader("Mantenimiento")
-    if st.button("⚠️️ BORRAR MIS DATOS"):
+    if st.button("⚠ BORRAR MIS DATOS"):
         supabase.table("asistencia").delete().eq("profe_id", st.session_state.user).execute()
         supabase.table("estudiantes").delete().eq("profe_id", st.session_state.user).execute()
         supabase.table("cursos").delete().eq("profe_id", st.session_state.user).execute()
-        st.success("Datos eliminados correctamente."); st.rerun()
+        st.success("Datos eliminados correctamente.")
+        st.rerun()
 
     st.markdown("<br><br>", unsafe_allow_html=True)
     with st.expander("🛠️ Panel Programador"):
