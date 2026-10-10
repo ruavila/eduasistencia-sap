@@ -63,116 +63,110 @@ def cerrar_clase_actual():
     st.session_state.sel_curso_scan = None
     resetear_estado_escaneo()
 
-# --- ESTILOS CSS PERSONALIZADOS PARA PC Y MÓVIL ---
+# --- ESTILOS CSS PARA CENTRAR Y DAR FORMATO DE TARJETA EN PC ---
 st.markdown("""
     <style>
-    /* Estilo del contenedor principal del login en PC */
-    [data-testid="stForm"], div.block-container {
-        max-width: 900px;
-        padding-top: 2rem;
+    /* Centrar el contenido principal y limitar el ancho en PC */
+    .block-container {
+        max-width: 650px !important;
+        padding-top: 3rem !important;
     }
     
-    /* Estilizado de la tarjeta de Login */
+    /* Tarjeta contenedora principal */
     .login-card {
-        background-color: #1e2130;
-        border: 1px solid #2e344d;
-        border-radius: 15px;
-        padding: 25px;
-        box-shadow: 0 8px 16px rgba(0, 0, 0, 0.4);
-        margin-top: 10px;
+        background-color: #16192b;
+        border: 1px solid #252a41;
+        border-radius: 16px;
+        padding: 30px;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
     }
     
-    /* Botón de ingreso resaltado */
-    div.stButton > button[kind="primary"] {
+    /* Estilo para los inputs */
+    div.stTextInput > div > div > input {
         border-radius: 8px;
-        font-weight: bold;
-        height: 3rem;
-        font-size: 1.05rem;
     }
     </style>
 """, unsafe_allow_html=True)
 
-# --- BLOQUE 1: AUTENTICACIÓN Y RECUPERACIÓN MEJORADO PARA PC ---
+# --- BLOQUE 1: AUTENTICACIÓN Y RECUPERACIÓN CORREGIDO ---
 if not st.session_state.logueado:
-    # Centrado en pantallas grandes utilizando columnas
-    col_izq, col_central, col_der = st.columns([1, 2.5, 1])
+    st.markdown('<div class="login-card">', unsafe_allow_html=True)
     
-    with col_central:
-        # Encabezado institucional en tarjeta
-        st.markdown('<div class="login-card">', unsafe_allow_html=True)
-        
-        c1, c2 = st.columns([1, 3.5], vertical_alignment="center")
-        with c1:
-            if os.path.exists(ESCUDO_PATH): 
-                st.image(ESCUDO_PATH, width=95)
-        with c2:
-            st.markdown(f"<h3 style='margin:0; color:#e0e0e0; font-size:1.2rem;'>{COLEGIO}</h3>", unsafe_allow_html=True)
-            st.markdown(
-                f"""
-                <h1 style='margin:0; color:#4F8BF9; font-size:2.2rem;'>{APP_NAME}</h1>
-                <p style='margin:0; color: #888; font-size: 0.85rem;'>
+    # Encabezado unificado con tabla HTML interna para forzar alineación perfecta lado a lado
+    escudo_url = ESCUDO_PATH if os.path.exists(ESCUDO_PATH) else ""
+    
+    st.markdown(
+        f"""
+        <div style="display: flex; align-items: center; gap: 20px; margin-bottom: 20px;">
+            <div>
+                <img src="app/static/escudo.png" width="85" style="border-radius: 8px;" onerror="this.style.display='none'">
+            </div>
+            <div>
+                <h3 style='margin:0; color:#cfd8dc; font-size: 1.1rem;'>{COLEGIO}</h3>
+                <h1 style='margin:0; color:#4F8BF9; font-size: 2rem; font-weight: 700;'>{APP_NAME}</h1>
+                <p style='margin:0; color: #9e9e9e; font-size: 0.8rem;'>
                     <b>Versión {APP_VERSION}</b> | Desarrollado por: <b>{DEVELOPER_NAME}</b>
                 </p>
-                """, 
-                unsafe_allow_html=True
-            )
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    
+    st.markdown("<hr style='border-color: #252a41; margin-bottom: 25px;'>", unsafe_allow_html=True)
+    
+    t1, t2, t3 = st.tabs(["🔐 Acceso", "📝 Registro", "🔑 Recuperar Clave"])
+    
+    with t1:
+        u_l = st.text_input("Usuario", key="l_u", placeholder="Ingrese su Usuario ID")
+        p_l = st.text_input("Contraseña", type="password", key="l_p", placeholder="••••••••")
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("🚀 INGRESAR AL SISTEMA", use_container_width=True, type="primary"):
+            res = supabase.table("usuarios").select("nombre").eq("usuario", u_l).eq("password", hash_password(p_l)).execute()
+            if res.data:
+                st.session_state.logueado, st.session_state.user, st.session_state.profe_nom = True, u_l, res.data[0]['nombre']
+                st.rerun()
+            else: 
+                st.error("Credenciales incorrectas.")
+    
+    with t2:
+        nu = st.text_input("Definir Usuario ID", key="reg_u")
+        nn = st.text_input("Nombre Completo", key="reg_n")
+        np = st.text_input("Definir Contraseña", type="password", key="reg_p")
+        st.info("Configura tu dato secreto para recuperación:")
+        preg = st.selectbox("Pregunta de Seguridad", ["¿Nombre de su primera mascota?", "¿Ciudad de nacimiento?", "¿Comida favorita?"], key="reg_preg")
+        resp = st.text_input("Respuesta Secreta", key="reg_resp")
         
-        st.markdown("<hr style='margin: 15px 0; border-color: #2e344d;'>", unsafe_allow_html=True)
-        t1, t2, t3 = st.tabs(["🔐 Acceso", "📝 Registro", "🔑 Recuperar Clave"])
-        
-        with t1:
-            st.markdown("<br>", unsafe_allow_html=True)
-            u_l = st.text_input("Usuario", key="l_u", placeholder="Ingrese su Usuario ID")
-            p_l = st.text_input("Contraseña", type="password", key="l_p", placeholder="••••••••")
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("🚀 INGRESAR AL SISTEMA", use_container_width=True, type="primary"):
-                res = supabase.table("usuarios").select("nombre").eq("usuario", u_l).eq("password", hash_password(p_l)).execute()
-                if res.data:
-                    st.session_state.logueado, st.session_state.user, st.session_state.profe_nom = True, u_l, res.data[0]['nombre']
-                    st.rerun()
-                else: 
-                    st.error("Credenciales incorrectas.")
-        
-        with t2:
-            st.markdown("<br>", unsafe_allow_html=True)
-            nu = st.text_input("Definir Usuario ID")
-            nn = st.text_input("Nombre Completo")
-            np = st.text_input("Definir Contraseña", type="password")
-            st.info("Configura tu dato secreto para recuperación:")
-            preg = st.selectbox("Pregunta de Seguridad", ["¿Nombre de su primera mascota?", "¿Ciudad de nacimiento?", "¿Comida favorita?"])
-            resp = st.text_input("Respuesta Secreta")
-            
-            if st.button("✨ CREAR CUENTA", use_container_width=True):
-                if nu and nn and np and resp:
-                    try:
-                        supabase.table("usuarios").insert({
-                            "usuario": nu, "password": hash_password(np), "nombre": nn, 
-                            "pregunta_seguridad": preg, "respuesta_seguridad": resp.strip().lower()
-                        }).execute()
-                        st.success("Cuenta creada exitosamente.")
-                    except: 
-                        st.error("El usuario ya existe.")
-                else: 
-                    st.warning("Complete todos los campos.")
+        if st.button("✨ CREAR CUENTA", use_container_width=True):
+            if nu and nn and np and resp:
+                try:
+                    supabase.table("usuarios").insert({
+                        "usuario": nu, "password": hash_password(np), "nombre": nn, 
+                        "pregunta_seguridad": preg, "respuesta_seguridad": resp.strip().lower()
+                    }).execute()
+                    st.success("Cuenta creada exitosamente.")
+                except: 
+                    st.error("El usuario ya existe.")
+            else: 
+                st.warning("Complete todos los campos.")
 
-        with t3:
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.markdown("### Recuperar Acceso")
-            ur = st.text_input("Ingrese su Usuario ID:", key="rec_user")
-            if ur:
-                u_data = supabase.table("usuarios").select("*").eq("usuario", ur).execute().data
-                if u_data:
-                    st.write(f"**Pregunta:** {u_data[0]['pregunta_seguridad']}")
-                    r_int = st.text_input("Su respuesta secreta:", type="password")
-                    n_p = st.text_input("Nueva Contraseña:", type="password")
-                    if st.button("✅ ACTUALIZAR", use_container_width=True):
-                        if r_int.strip().lower() == u_data[0]['respuesta_seguridad']:
-                            supabase.table("usuarios").update({"password": hash_password(n_p)}).eq("usuario", ur).execute()
-                            st.success("Contraseña actualizada.")
-                        else: 
-                            st.error("Respuesta incorrecta.")
-        
-        st.markdown('</div>', unsafe_allow_html=True)
+    with t3:
+        st.markdown("### Recuperar Acceso")
+        ur = st.text_input("Ingrese su Usuario ID:", key="rec_user")
+        if ur:
+            u_data = supabase.table("usuarios").select("*").eq("usuario", ur).execute().data
+            if u_data:
+                st.write(f"**Pregunta:** {u_data[0]['pregunta_seguridad']}")
+                r_int = st.text_input("Su respuesta secreta:", type="password", key="rec_resp_val")
+                n_p = st.text_input("Nueva Contraseña:", type="password", key="rec_pass_new")
+                if st.button("✅ ACTUALIZAR", use_container_width=True):
+                    if r_int.strip().lower() == u_data[0]['respuesta_seguridad']:
+                        supabase.table("usuarios").update({"password": hash_password(n_p)}).eq("usuario", ur).execute()
+                        st.success("Contraseña actualizada.")
+                    else: 
+                        st.error("Respuesta incorrecta.")
+                        
+    st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
 
 # --- BARRA LATERAL ---
