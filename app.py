@@ -63,33 +63,69 @@ def cerrar_clase_actual():
     st.session_state.sel_curso_scan = None
     resetear_estado_escaneo()
 
-# --- BLOQUE 1: AUTENTICACIÓN Y RECUPERACIÓN ---
+# --- ESTILOS CSS PERSONALIZADOS PARA PC Y MÓVIL ---
+st.markdown("""
+    <style>
+    /* Estilo del contenedor principal del login en PC */
+    [data-testid="stForm"], div.block-container {
+        max-width: 900px;
+        padding-top: 2rem;
+    }
+    
+    /* Estilizado de la tarjeta de Login */
+    .login-card {
+        background-color: #1e2130;
+        border: 1px solid #2e344d;
+        border-radius: 15px;
+        padding: 25px;
+        box-shadow: 0 8px 16px rgba(0, 0, 0, 0.4);
+        margin-top: 10px;
+    }
+    
+    /* Botón de ingreso resaltado */
+    div.stButton > button[kind="primary"] {
+        border-radius: 8px;
+        font-weight: bold;
+        height: 3rem;
+        font-size: 1.05rem;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# --- BLOQUE 1: AUTENTICACIÓN Y RECUPERACIÓN MEJORADO PARA PC ---
 if not st.session_state.logueado:
-    _, col_central, _ = st.columns([1, 2, 1])
+    # Centrado en pantallas grandes utilizando columnas
+    col_izq, col_central, col_der = st.columns([1, 2.5, 1])
+    
     with col_central:
-        c1, c2 = st.columns([1, 4])
+        # Encabezado institucional en tarjeta
+        st.markdown('<div class="login-card">', unsafe_allow_html=True)
+        
+        c1, c2 = st.columns([1, 3.5], vertical_alignment="center")
         with c1:
             if os.path.exists(ESCUDO_PATH): 
-                st.image(ESCUDO_PATH, width=80)
+                st.image(ESCUDO_PATH, width=95)
         with c2:
-            st.markdown(f"### {COLEGIO}")
+            st.markdown(f"<h3 style='margin:0; color:#e0e0e0; font-size:1.2rem;'>{COLEGIO}</h3>", unsafe_allow_html=True)
             st.markdown(
                 f"""
-                <h1 style='margin:0;'>{APP_NAME}</h1>
-                <p style='margin:0; color: grey; font-size: 0.9rem;'>
+                <h1 style='margin:0; color:#4F8BF9; font-size:2.2rem;'>{APP_NAME}</h1>
+                <p style='margin:0; color: #888; font-size: 0.85rem;'>
                     <b>Versión {APP_VERSION}</b> | Desarrollado por: <b>{DEVELOPER_NAME}</b>
                 </p>
                 """, 
                 unsafe_allow_html=True
             )
         
-        st.markdown("---")
+        st.markdown("<hr style='margin: 15px 0; border-color: #2e344d;'>", unsafe_allow_html=True)
         t1, t2, t3 = st.tabs(["🔐 Acceso", "📝 Registro", "🔑 Recuperar Clave"])
         
         with t1:
-            u_l = st.text_input("Usuario", key="l_u")
-            p_l = st.text_input("Contraseña", type="password", key="l_p")
-            if st.button("🚀 INGRESAR", use_container_width=True, type="primary"):
+            st.markdown("<br>", unsafe_allow_html=True)
+            u_l = st.text_input("Usuario", key="l_u", placeholder="Ingrese su Usuario ID")
+            p_l = st.text_input("Contraseña", type="password", key="l_p", placeholder="••••••••")
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("🚀 INGRESAR AL SISTEMA", use_container_width=True, type="primary"):
                 res = supabase.table("usuarios").select("nombre").eq("usuario", u_l).eq("password", hash_password(p_l)).execute()
                 if res.data:
                     st.session_state.logueado, st.session_state.user, st.session_state.profe_nom = True, u_l, res.data[0]['nombre']
@@ -98,6 +134,7 @@ if not st.session_state.logueado:
                     st.error("Credenciales incorrectas.")
         
         with t2:
+            st.markdown("<br>", unsafe_allow_html=True)
             nu = st.text_input("Definir Usuario ID")
             nn = st.text_input("Nombre Completo")
             np = st.text_input("Definir Contraseña", type="password")
@@ -119,6 +156,7 @@ if not st.session_state.logueado:
                     st.warning("Complete todos los campos.")
 
         with t3:
+            st.markdown("<br>", unsafe_allow_html=True)
             st.markdown("### Recuperar Acceso")
             ur = st.text_input("Ingrese su Usuario ID:", key="rec_user")
             if ur:
@@ -133,6 +171,8 @@ if not st.session_state.logueado:
                             st.success("Contraseña actualizada.")
                         else: 
                             st.error("Respuesta incorrecta.")
+        
+        st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
 
 # --- BARRA LATERAL ---
