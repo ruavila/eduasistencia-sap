@@ -48,6 +48,8 @@ if 'tema_clase_actual' not in st.session_state:
     st.session_state.tema_clase_actual = ""
 if 'sel_curso_scan' not in st.session_state:
     st.session_state.sel_curso_scan = None
+if 'notificados_whatsapp' not in st.session_state:
+    st.session_state.notificados_whatsapp = set()
 
 def resetear_estado_escaneo():
     """Limpia variables temporales asociadas al escáner e inactiva captura."""
@@ -55,12 +57,14 @@ def resetear_estado_escaneo():
         if key.startswith("sc_"):
             del st.session_state[key]
     st.session_state.captura_finalizada = False
+    st.session_state.notificados_whatsapp = set()
 
 def cerrar_clase_actual():
     """Restablece completamente la sesión de la clase activa."""
     st.session_state.captura_finalizada = False
     st.session_state.tema_clase_actual = ""
     st.session_state.sel_curso_scan = None
+    st.session_state.notificados_whatsapp = set()
     resetear_estado_escaneo()
 
 # --- BLOQUE 1: AUTENTICACIÓN Y RECUPERACIÓN ---
@@ -189,7 +193,6 @@ def obtener_estudiantes_unicos(grado_sel):
     estudiantes_unicos = []
     docs_vistos = set()
     
-    # Ordenar alfabéticamente por nombre
     est_ordenados = sorted(todos_est_raw, key=lambda x: str(x.get('nombre', '')).strip().upper())
     
     for e in est_ordenados:
@@ -466,6 +469,9 @@ elif menu == "📷 Scanner / Asistencia":
                                 col_a, col_b = st.columns([3, 1])
                                 col_a.write(f"❌ **{aus['nombre']}**")
                                 
+                                doc_ausente = str(aus['documento']).strip()
+                                ya_notificado = doc_ausente in st.session_state.notificados_whatsapp
+
                                 cuerpo_msj = (
                                     f"{saludo}, señor(a) padre de familia o acudiente. "
                                     f"La Institución Educativa San Antonio de Padua le informa que el estudiante "
@@ -482,7 +488,14 @@ elif menu == "📷 Scanner / Asistencia":
                                 link_wa = f"https://api.whatsapp.com/send?phone=57{num_wa}&text={msg_encoded}"
                                 
                                 with col_b:
-                                    st.link_button("📲 Notificar", link_wa, use_container_width=True)
+                                    if not ya_notificado:
+                                        if st.button("📲 Notificar", key=f"btn_notif_{doc_ausente}_{idx_aus}", use_container_width=True):
+                                            st.session_state.notificados_whatsapp.add(doc_ausente)
+                                            # Redirige mediante JS abriendo la URL de WhatsApp de forma segura
+                                            st.markdown(f'<meta http-equiv="refresh" content="0;url={link_wa}">', unsafe_allow_html=True)
+                                            st.rerun()
+                                    else:
+                                        st.button("✅ Notificado", key=f"btn_notif_{doc_ausente}_{idx_aus}", disabled=True, use_container_width=True)
                         else:
                             st.success("🎉 ¡No hay reportes de inasistencia pendientes hoy!")
                 else:
