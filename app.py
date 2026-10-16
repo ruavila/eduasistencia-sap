@@ -193,7 +193,6 @@ def obtener_estudiantes_unicos(grado_sel):
     estudiantes_unicos = []
     docs_vistos = set()
     
-    # Ordenar alfabéticamente por nombre
     est_ordenados = sorted(todos_est_raw, key=lambda x: str(x.get('nombre', '')).strip().upper())
     
     for e in est_ordenados:
@@ -462,16 +461,19 @@ elif menu == "📷 Scanner / Asistencia":
                             if not ("[Ausente]" in tema_r):
                                 registros_excluidos.add(est_id)
 
-                        ausentes = [e for e in estudiantes_curso if str(e['documento']).strip() not in registros_excluidos]
+                        # Filtramos los ausentes excluyendo a los que ya fueron marcados como notificados en esta sesión
+                        ausentes = [
+                            e for e in estudiantes_curso 
+                            if str(e['documento']).strip() not in registros_excluidos and str(e['documento']).strip() not in st.session_state.notificados_whatsapp
+                        ]
                         
                         if ausentes:
-                            st.write(f"Total ausentes: **{len(ausentes)}** de **{len(estudiantes_curso)}** matriculados.")
+                            st.write(f"Total ausentes pendientes: **{len(ausentes)}**")
                             for aus in ausentes:
                                 col_a, col_b = st.columns([3, 1])
                                 col_a.write(f"❌ **{aus['nombre']}**")
                                 
                                 doc_ausente = str(aus['documento']).strip()
-                                ya_notificado = doc_ausente in st.session_state.notificados_whatsapp
 
                                 cuerpo_msj = (
                                     f"{saludo}, señor(a) padre de familia o acudiente. "
@@ -489,14 +491,12 @@ elif menu == "📷 Scanner / Asistencia":
                                 link_wa = f"https://api.whatsapp.com/send?phone=57{num_wa}&text={msg_encoded}"
                                 
                                 with col_b:
-                                    if not ya_notificado:
-                                        if st.link_button("📲 Notificar", link_wa, use_container_width=True, key=f"btn_link_{doc_ausente}"):
-                                            st.session_state.notificados_whatsapp.add(doc_ausente)
-                                            st.rerun()
-                                    else:
-                                        st.button("✅ Notificado", key=f"btn_done_{doc_ausente}", disabled=True, use_container_width=True)
+                                    # Al hacer clic en el link_button, abre WhatsApp y ejecuta la acción para agregarlo a notificados y recargar la vista
+                                    if st.link_button("📲 Notificar", link_wa, use_container_width=True, key=f"btn_link_{doc_ausente}"):
+                                        st.session_state.notificados_whatsapp.add(doc_ausente)
+                                        st.rerun()
                         else:
-                            st.success("🎉 ¡No hay reportes de inasistencia pendientes hoy!")
+                            st.success("🎉 ¡No hay reportes de inasistencia pendientes o todos han sido notificados!")
                 else:
                     st.info("Por favor ingresa el **Tema de la clase** arriba para activar el Escáner QR.")
 
