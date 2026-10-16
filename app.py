@@ -489,13 +489,17 @@ elif menu == "📷 Scanner / Asistencia":
                                 
                                 with col_b:
                                     if not ya_notificado:
-                                        if st.button("📲 Notificar", key=f"btn_notif_{doc_ausente}_{idx_aus}", use_container_width=True):
+                                        if st.button("📲 Notificar", key=f"btn_mark_{doc_ausente}_{idx_aus}", use_container_width=True):
                                             st.session_state.notificados_whatsapp.add(doc_ausente)
-                                            # Redirige mediante JS abriendo la URL de WhatsApp de forma segura
-                                            st.markdown(f'<meta http-equiv="refresh" content="0;url={link_wa}">', unsafe_allow_html=True)
                                             st.rerun()
+                                        st.markdown(
+                                            f'<a href="{link_wa}" target="_blank" style="text-decoration:none;">'
+                                            f'<div style="background-color:#25D366; color:white; text-align:center; padding:6px; border-radius:5px; font-weight:bold; margin-top:-10px;">'
+                                            f'Abrir WhatsApp</div></a>', 
+                                            unsafe_allow_html=True
+                                        )
                                     else:
-                                        st.button("✅ Notificado", key=f"btn_notif_{doc_ausente}_{idx_aus}", disabled=True, use_container_width=True)
+                                        st.button("✅ Notificado", key=f"btn_done_{doc_ausente}_{idx_aus}", disabled=True, use_container_width=True)
                         else:
                             st.success("🎉 ¡No hay reportes de inasistencia pendientes hoy!")
                 else:
