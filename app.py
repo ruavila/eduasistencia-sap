@@ -193,6 +193,7 @@ def obtener_estudiantes_unicos(grado_sel):
     estudiantes_unicos = []
     docs_vistos = set()
     
+    # Ordenar alfabéticamente por nombre
     est_ordenados = sorted(todos_est_raw, key=lambda x: str(x.get('nombre', '')).strip().upper())
     
     for e in est_ordenados:
@@ -465,7 +466,7 @@ elif menu == "📷 Scanner / Asistencia":
                         
                         if ausentes:
                             st.write(f"Total ausentes: **{len(ausentes)}** de **{len(estudiantes_curso)}** matriculados.")
-                            for idx_aus, aus in enumerate(ausentes):
+                            for aus in ausentes:
                                 col_a, col_b = st.columns([3, 1])
                                 col_a.write(f"❌ **{aus['nombre']}**")
                                 
@@ -489,17 +490,11 @@ elif menu == "📷 Scanner / Asistencia":
                                 
                                 with col_b:
                                     if not ya_notificado:
-                                        if st.button("📲 Notificar", key=f"btn_mark_{doc_ausente}_{idx_aus}", use_container_width=True):
+                                        if st.link_button("📲 Notificar", link_wa, use_container_width=True, key=f"btn_link_{doc_ausente}"):
                                             st.session_state.notificados_whatsapp.add(doc_ausente)
                                             st.rerun()
-                                        st.markdown(
-                                            f'<a href="{link_wa}" target="_blank" style="text-decoration:none;">'
-                                            f'<div style="background-color:#25D366; color:white; text-align:center; padding:6px; border-radius:5px; font-weight:bold; margin-top:-10px;">'
-                                            f'Abrir WhatsApp</div></a>', 
-                                            unsafe_allow_html=True
-                                        )
                                     else:
-                                        st.button("✅ Notificado", key=f"btn_done_{doc_ausente}_{idx_aus}", disabled=True, use_container_width=True)
+                                        st.button("✅ Notificado", key=f"btn_done_{doc_ausente}", disabled=True, use_container_width=True)
                         else:
                             st.success("🎉 ¡No hay reportes de inasistencia pendientes hoy!")
                 else:
