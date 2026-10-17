@@ -48,8 +48,6 @@ if 'tema_clase_actual' not in st.session_state:
     st.session_state.tema_clase_actual = ""
 if 'sel_curso_scan' not in st.session_state:
     st.session_state.sel_curso_scan = None
-if 'notificados_whatsapp' not in st.session_state:
-    st.session_state.notificados_whatsapp = set()
 
 def resetear_estado_escaneo():
     """Limpia variables temporales asociadas al escáner e inactiva captura."""
@@ -57,14 +55,12 @@ def resetear_estado_escaneo():
         if key.startswith("sc_"):
             del st.session_state[key]
     st.session_state.captura_finalizada = False
-    st.session_state.notificados_whatsapp = set()
 
 def cerrar_clase_actual():
     """Restablece completamente la sesión de la clase activa."""
     st.session_state.captura_finalizada = False
     st.session_state.tema_clase_actual = ""
     st.session_state.sel_curso_scan = None
-    st.session_state.notificados_whatsapp = set()
     resetear_estado_escaneo()
 
 # --- BLOQUE 1: AUTENTICACIÓN Y RECUPERACIÓN ---
@@ -193,6 +189,7 @@ def obtener_estudiantes_unicos(grado_sel):
     estudiantes_unicos = []
     docs_vistos = set()
     
+    # Ordenar alfabéticamente por nombre
     est_ordenados = sorted(todos_est_raw, key=lambda x: str(x.get('nombre', '')).strip().upper())
     
     for e in est_ordenados:
@@ -461,20 +458,14 @@ elif menu == "📷 Scanner / Asistencia":
                             if not ("[Ausente]" in tema_r):
                                 registros_excluidos.add(est_id)
 
-                        # Filtramos los ausentes excluyendo a los que ya fueron marcados como notificados en esta sesión
-                        ausentes = [
-                            e for e in estudiantes_curso 
-                            if str(e['documento']).strip() not in registros_excluidos and str(e['documento']).strip() not in st.session_state.notificados_whatsapp
-                        ]
+                        ausentes = [e for e in estudiantes_curso if str(e['documento']).strip() not in registros_excluidos]
                         
                         if ausentes:
-                            st.write(f"Total ausentes pendientes: **{len(ausentes)}**")
-                            for aus in ausentes:
+                            st.write(f"Total ausentes: **{len(ausentes)}** de **{len(estudiantes_curso)}** matriculados.")
+                            for idx_aus, aus in enumerate(ausentes):
                                 col_a, col_b = st.columns([3, 1])
                                 col_a.write(f"❌ **{aus['nombre']}**")
                                 
-                                doc_ausente = str(aus['documento']).strip()
-
                                 cuerpo_msj = (
                                     f"{saludo}, señor(a) padre de familia o acudiente. "
                                     f"La Institución Educativa San Antonio de Padua le informa que el estudiante "
@@ -491,12 +482,9 @@ elif menu == "📷 Scanner / Asistencia":
                                 link_wa = f"https://api.whatsapp.com/send?phone=57{num_wa}&text={msg_encoded}"
                                 
                                 with col_b:
-                                    # Al hacer clic en el link_button, abre WhatsApp y ejecuta la acción para agregarlo a notificados y recargar la vista
-                                    if st.link_button("📲 Notificar", link_wa, use_container_width=True, key=f"btn_link_{doc_ausente}"):
-                                        st.session_state.notificados_whatsapp.add(doc_ausente)
-                                        st.rerun()
+                                    st.link_button("📲 Notificar", link_wa, use_container_width=True)
                         else:
-                            st.success("🎉 ¡No hay reportes de inasistencia pendientes o todos han sido notificados!")
+                            st.success("🎉 ¡No hay reportes de inasistencia pendientes hoy!")
                 else:
                     st.info("Por favor ingresa el **Tema de la clase** arriba para activar el Escáner QR.")
 
