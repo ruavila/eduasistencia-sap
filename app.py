@@ -466,16 +466,45 @@ elif menu == "📷 Scanner / Asistencia":
                                 col_a, col_b = st.columns([3, 1])
                                 col_a.write(f"❌ **{aus['nombre']}**")
                                 
-                                cuerpo_msj = (
-                                    f"{saludo}, señor(a) padre de familia o acudiente. "
-                                    f"La Institución Educativa San Antonio de Padua le informa que el estudiante "
-                                    f"*{aus['nombre']}* no se presentó el día de hoy a la clase de *{ma}* ({ga}).\n\n"
-                                    f"*Hora de reporte:* {hora_msj}\n"
-                                    f"*Tema tratado:* {tema}.\n\n"
-                                    f"Institucionalmente,\n\n"
-                                    f"*Docente:* {st.session_state.profe_nom}\n"
-                                    f"*Área:* {ma}"
-                                )
+                                # --- PLANTILLAS ROTATIVAS PARA EVITAR SPAM EN WHATSAPP ---
+                                plantillas = [
+                                    # Opción 0: Formal Estándar
+                                    (
+                                        f"{saludo}, señor(a) padre de familia o acudiente. "
+                                        f"La Institución Educativa San Antonio de Padua le informa que el estudiante "
+                                        f"*{aus['nombre']}* no se presentó el día de hoy a la clase de *{ma}* ({ga}).\n\n"
+                                        f"*Hora de reporte:* {hora_msj}\n"
+                                        f"*Tema tratado:* {tema}.\n\n"
+                                        f"Institucionalmente,\n\n"
+                                        f"*Docente:* {st.session_state.profe_nom}\n"
+                                        f"*Área:* {ma}"
+                                    ),
+                                    # Opción 1: Seguimiento Académico
+                                    (
+                                        f"{saludo}, cordial saludo. "
+                                        f"Le informamos desde la Institución Educativa San Antonio de Padua que hoy el/la estudiante "
+                                        f"*{aus['nombre']}* registró inasistencia en la asignatura de *{ma}* ({ga}).\n\n"
+                                        f"*Detalles de la sesión:*\n"
+                                        f"• *Hora:* {hora_msj}\n"
+                                        f"• *Tema de clase:* {tema}\n\n"
+                                        f"Atentamente,\n\n"
+                                        f"*Docente:* {st.session_state.profe_nom}\n"
+                                        f"*I.E. San Antonio de Padua*"
+                                    ),
+                                    # Opción 2: Directo e Informativo
+                                    (
+                                        f"{saludo}, estimado acudiente. "
+                                        f"Reportamos la inasistencia del estudiante *{aus['nombre']}* a la clase de *{ma}* ({ga}) en la fecha de hoy.\n\n"
+                                        f"*Registro de clase:*\n"
+                                        f"📌 *Hora:* {hora_msj}\n"
+                                        f"📌 *Tema:* {tema}\n\n"
+                                        f"*Docente a cargo:* {st.session_state.profe_nom}\n"
+                                        f"*Institución Educativa San Antonio de Padua*"
+                                    )
+                                ]
+
+                                # Alterna automáticamente entre las 3 plantillas según la posición del estudiante
+                                cuerpo_msj = plantillas[idx_aus % len(plantillas)]
                                 
                                 msg_encoded = urllib.parse.quote(cuerpo_msj)
                                 num_wa = str(aus.get('whatsapp', '')).strip()
