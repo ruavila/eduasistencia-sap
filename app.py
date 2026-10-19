@@ -466,52 +466,61 @@ elif menu == "📷 Scanner / Asistencia":
                                 col_a, col_b = st.columns([3, 1])
                                 col_a.write(f"❌ **{aus['nombre']}**")
                                 
-                                # --- PLANTILLAS ROTATIVAS PARA EVITAR SPAM EN WHATSAPP ---
+                                # --- PLANTILLAS INSTITUCIONALES COMPLETAS Y ROTATIVAS ---
                                 plantillas = [
-                                    # Opción 0: Formal Estándar
+                                    # Opción 0: Institucional Completa
                                     (
-                                        f"{saludo}, señor(a) padre de familia o acudiente. "
-                                        f"La Institución Educativa San Antonio de Padua le informa que el estudiante "
-                                        f"*{aus['nombre']}* no se presentó el día de hoy a la clase de *{ma}* ({ga}).\n\n"
-                                        f"*Hora de reporte:* {hora_msj}\n"
-                                        f"*Tema tratado:* {tema}.\n\n"
-                                        f"Institucionalmente,\n\n"
+                                        f"{saludo}, señor(a) padre de familia o acudiente.\n\n"
+                                        f"Desde la Institución Educativa San Antonio de Padua le notificamos que el/la estudiante "
+                                        f"*{aus['nombre']}* no registró asistencia a la sesión programada de *{ma}* en el grado *{ga}*.\n\n"
+                                        f"📋 *Detalles del reporte:*\n"
+                                        f"• Hora de control: {hora_msj}\n"
+                                        f"• Actividad / Tema: {tema}\n\n"
+                                        f"Agradecemos su atención y seguimiento continuo.\n\n"
+                                        f"Atentamente,\n"
                                         f"*Docente:* {st.session_state.profe_nom}\n"
                                         f"*Área:* {ma}"
                                     ),
-                                    # Opción 1: Seguimiento Académico
+                                    # Opción 1: Enfoque de Responsabilidad Académica
                                     (
-                                        f"{saludo}, cordial saludo. "
-                                        f"Le informamos desde la Institución Educativa San Antonio de Padua que hoy el/la estudiante "
-                                        f"*{aus['nombre']}* registró inasistencia en la asignatura de *{ma}* ({ga}).\n\n"
-                                        f"*Detalles de la sesión:*\n"
-                                        f"• *Hora:* {hora_msj}\n"
-                                        f"• *Tema de clase:* {tema}\n\n"
-                                        f"Atentamente,\n\n"
-                                        f"*Docente:* {st.session_state.profe_nom}\n"
-                                        f"*I.E. San Antonio de Padua*"
-                                    ),
-                                    # Opción 2: Directo e Informativo
-                                    (
-                                        f"{saludo}, estimado acudiente. "
-                                        f"Reportamos la inasistencia del estudiante *{aus['nombre']}* a la clase de *{ma}* ({ga}) en la fecha de hoy.\n\n"
-                                        f"*Registro de clase:*\n"
-                                        f"📌 *Hora:* {hora_msj}\n"
-                                        f"📌 *Tema:* {tema}\n\n"
+                                        f"{saludo} de parte de la Institución Educativa San Antonio de Padua.\n\n"
+                                        f"Por medio del presente mensaje, le informamos que el estudiante *{aus['nombre']}* de *{ga}* "
+                                        f"figura con inasistencia en nuestra clase de *{ma}* el día de hoy.\n\n"
+                                        f"📌 *Información de la clase:*\n"
+                                        f"• Registro de hora: {hora_msj}\n"
+                                        f"• Tema abordado: {tema}\n\n"
+                                        f"Solicitamos verificar el motivo de su ausencia para el acompañamiento académico oportuno.\n\n"
                                         f"*Docente a cargo:* {st.session_state.profe_nom}\n"
                                         f"*Institución Educativa San Antonio de Padua*"
+                                    ),
+                                    # Opción 2: Aviso de Control Escolar
+                                    (
+                                        f"{saludo}, estimado(a) acudiente.\n\n"
+                                        f"El sistema de control de asistencia de la Institución Educativa San Antonio de Padua "
+                                        f"registra la ausencia del estudiante *{aus['nombre']}* en la asignatura de *{ma}* (*{ga}*).\n\n"
+                                        f"🕒 *Registro oficial:*\n"
+                                        f"• Hora: {hora_msj}\n"
+                                        f"• Tema de estudio: {tema}\n\n"
+                                        f"Quedamos atentos ante cualquier novedad o justificación correspondiente.\n\n"
+                                        f"Cordialmente,\n"
+                                        f"*{st.session_state.profe_nom}* — *Docente*\n"
+                                        f"*I.E. San Antonio de Padua*"
                                     )
                                 ]
 
-                                # Alterna automáticamente entre las 3 plantillas según la posición del estudiante
                                 cuerpo_msj = plantillas[idx_aus % len(plantillas)]
-                                
                                 msg_encoded = urllib.parse.quote(cuerpo_msj)
                                 num_wa = str(aus.get('whatsapp', '')).strip()
                                 link_wa = f"https://api.whatsapp.com/send?phone=57{num_wa}&text={msg_encoded}"
                                 
                                 with col_b:
-                                    st.link_button("📲 Notificar", link_wa, use_container_width=True)
+                                    # Enlace HTML seguro para evitar errores de conexión Code: 1ST
+                                    st.markdown(
+                                        f'<a href="{link_wa}" target="_blank" style="text-decoration:none;">'
+                                        f'<div style="background-color:#25D366; color:white; text-align:center; padding:8px 12px; border-radius:6px; font-weight:bold; font-size:0.9rem;">'
+                                        f'📲 Notificar</div></a>',
+                                        unsafe_allow_html=True
+                                    )
                         else:
                             st.success("🎉 ¡No hay reportes de inasistencia pendientes hoy!")
                 else:
