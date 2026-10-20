@@ -17,7 +17,7 @@ from fpdf import FPDF
 # ==============================================================================
 # --- CONSTANTES GLOBALES ---
 APP_NAME = "EduAsistencia-Pro"
-APP_VERSION = "v2.2.2"
+APP_VERSION = "v2.2.3"
 DEVELOPER_NAME = "Rubén Darío Ávila Sandoval"
 IE_INITIALS = "I.E. S.A.P."
 COLEGIO = "Institución Educativa San Antonio de Padua"
@@ -466,58 +466,54 @@ elif menu == "📷 Scanner / Asistencia":
                                 col_a, col_b = st.columns([3, 1])
                                 col_a.write(f"❌ **{aus['nombre']}**")
                                 
-                                # --- PLANTILLAS INSTITUCIONALES COMPLETAS Y ROTATIVAS ---
+                                # --- PLANTILLAS ROTATIVAS INSTITUCIONALES (OPTIMIZADAS PARA URL) ---
                                 plantillas = [
                                     # Opción 0: Institucional Completa
                                     (
-                                        f"{saludo}, señor(a) padre de familia o acudiente.\n\n"
-                                        f"Desde la Institución Educativa San Antonio de Padua le notificamos que el/la estudiante "
-                                        f"*{aus['nombre']}* no registró asistencia a la sesión programada de *{ma}* en el grado *{ga}*.\n\n"
-                                        f"📋 *Detalles del reporte:*\n"
-                                        f"• Hora de control: {hora_msj}\n"
-                                        f"• Actividad / Tema: {tema}\n\n"
-                                        f"Agradecemos su atención y seguimiento continuo.\n\n"
+                                        f"{saludo}, señor(a) acudiente.\n\n"
+                                        f"La I.E. San Antonio de Padua le informa que el/la estudiante "
+                                        f"*{aus['nombre']}* no asistió hoy a la clase de *{ma}* ({ga}).\n\n"
+                                        f"📋 *Detalles:*\n"
+                                        f"• Hora: {hora_msj}\n"
+                                        f"• Tema: {tema}\n\n"
                                         f"Atentamente,\n"
                                         f"*Docente:* {st.session_state.profe_nom}\n"
                                         f"*Área:* {ma}"
                                     ),
-                                    # Opción 1: Enfoque de Responsabilidad Académica
+                                    # Opción 1: Enfoque Académico
                                     (
-                                        f"{saludo} de parte de la Institución Educativa San Antonio de Padua.\n\n"
-                                        f"Por medio del presente mensaje, le informamos que el estudiante *{aus['nombre']}* de *{ga}* "
-                                        f"figura con inasistencia en nuestra clase de *{ma}* el día de hoy.\n\n"
-                                        f"📌 *Información de la clase:*\n"
-                                        f"• Registro de hora: {hora_msj}\n"
-                                        f"• Tema abordado: {tema}\n\n"
-                                        f"Solicitamos verificar el motivo de su ausencia para el acompañamiento académico oportuno.\n\n"
-                                        f"*Docente a cargo:* {st.session_state.profe_nom}\n"
-                                        f"*Institución Educativa San Antonio de Padua*"
+                                        f"{saludo} de parte de la I.E. San Antonio de Padua.\n\n"
+                                        f"Le informamos que el estudiante *{aus['nombre']}* ({ga}) "
+                                        f"figura con inasistencia en la sesión de *{ma}* de hoy.\n\n"
+                                        f"📌 *Información:*\n"
+                                        f"• Hora: {hora_msj}\n"
+                                        f"• Tema: {tema}\n\n"
+                                        f"Agradecemos su seguimiento oportuno.\n"
+                                        f"*Docente:* {st.session_state.profe_nom}"
                                     ),
-                                    # Opción 2: Aviso de Control Escolar
+                                    # Opción 2: Control Escolar Directo
                                     (
                                         f"{saludo}, estimado(a) acudiente.\n\n"
-                                        f"El sistema de control de asistencia de la Institución Educativa San Antonio de Padua "
-                                        f"registra la ausencia del estudiante *{aus['nombre']}* en la asignatura de *{ma}* (*{ga}*).\n\n"
-                                        f"🕒 *Registro oficial:*\n"
+                                        f"El sistema de asistencia de la I.E. San Antonio de Padua "
+                                        f"registra la ausencia de *{aus['nombre']}* en *{ma}* ({ga}).\n\n"
+                                        f"🕒 *Registro:*\n"
                                         f"• Hora: {hora_msj}\n"
-                                        f"• Tema de estudio: {tema}\n\n"
-                                        f"Quedamos atentos ante cualquier novedad o justificación correspondiente.\n\n"
+                                        f"• Tema: {tema}\n\n"
                                         f"Cordialmente,\n"
-                                        f"*{st.session_state.profe_nom}* — *Docente*\n"
-                                        f"*I.E. San Antonio de Padua*"
+                                        f"*{st.session_state.profe_nom}* - Docente"
                                     )
                                 ]
 
                                 cuerpo_msj = plantillas[idx_aus % len(plantillas)]
-                                msg_encoded = urllib.parse.quote(cuerpo_msj)
+                                msg_encoded = urllib.parse.quote(cuerpo_msj, safe='')
                                 num_wa = str(aus.get('whatsapp', '')).strip()
                                 link_wa = f"https://api.whatsapp.com/send?phone=57{num_wa}&text={msg_encoded}"
                                 
                                 with col_b:
-                                    # Enlace HTML seguro para evitar errores de conexión Code: 1ST
+                                    # HTML NATIVO AISLADO: previene desconexiones websocket (Code: 1ST)
                                     st.markdown(
                                         f'<a href="{link_wa}" target="_blank" style="text-decoration:none;">'
-                                        f'<div style="background-color:#25D366; color:white; text-align:center; padding:8px 12px; border-radius:6px; font-weight:bold; font-size:0.9rem;">'
+                                        f'<div style="background-color:#25D366; color:white; text-align:center; padding:8px 12px; border-radius:6px; font-weight:bold; font-size:0.88rem;">'
                                         f'📲 Notificar</div></a>',
                                         unsafe_allow_html=True
                                     )
