@@ -17,7 +17,7 @@ from fpdf import FPDF
 # ==============================================================================
 # --- CONSTANTES GLOBALES ---
 APP_NAME = "EduAsistencia-Pro"
-APP_VERSION = "v2.2.3"
+APP_VERSION = "v2.2.4"
 DEVELOPER_NAME = "Rubén Darío Ávila Sandoval"
 IE_INITIALS = "I.E. S.A.P."
 COLEGIO = "Institución Educativa San Antonio de Padua"
@@ -466,7 +466,7 @@ elif menu == "📷 Scanner / Asistencia":
                                 col_a, col_b = st.columns([3, 1])
                                 col_a.write(f"❌ **{aus['nombre']}**")
                                 
-                                # --- PLANTILLAS ROTATIVAS INSTITUCIONALES (OPTIMIZADAS PARA URL) ---
+                                # --- PLANTILLAS ROTATIVAS INSTITUCIONALES ---
                                 plantillas = [
                                     # Opción 0: Institucional Completa
                                     (
@@ -505,16 +505,19 @@ elif menu == "📷 Scanner / Asistencia":
                                 ]
 
                                 cuerpo_msj = plantillas[idx_aus % len(plantillas)]
-                                msg_encoded = urllib.parse.quote(cuerpo_msj, safe='')
+                                msg_encoded = urllib.parse.quote(cuerpo_msj)
                                 num_wa = str(aus.get('whatsapp', '')).strip()
                                 link_wa = f"https://api.whatsapp.com/send?phone=57{num_wa}&text={msg_encoded}"
                                 
                                 with col_b:
-                                    # HTML NATIVO AISLADO: previene desconexiones websocket (Code: 1ST)
+                                    # Botón HTML con JavaScript nativo: NO pasa por el servidor de Streamlit ni desestabiliza el WebSocket
                                     st.markdown(
-                                        f'<a href="{link_wa}" target="_blank" style="text-decoration:none;">'
-                                        f'<div style="background-color:#25D366; color:white; text-align:center; padding:8px 12px; border-radius:6px; font-weight:bold; font-size:0.88rem;">'
-                                        f'📲 Notificar</div></a>',
+                                        f'''
+                                        <button onclick="window.open('{link_wa}', '_blank')" 
+                                            style="background-color:#25D366; color:white; border:none; text-align:center; padding:8px 12px; border-radius:6px; font-weight:bold; font-size:0.88rem; width:100%; cursor:pointer;">
+                                            📲 Notificar
+                                        </button>
+                                        ''',
                                         unsafe_allow_html=True
                                     )
                         else:
