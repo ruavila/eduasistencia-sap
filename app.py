@@ -17,7 +17,7 @@ from fpdf import FPDF
 # ==============================================================================
 # --- CONSTANTES GLOBALES ---
 APP_NAME = "EduAsistencia-Pro"
-APP_VERSION = "v2.2.4"
+APP_VERSION = "v2.2.5"
 DEVELOPER_NAME = "Rubén Darío Ávila Sandoval"
 IE_INITIALS = "I.E. S.A.P."
 COLEGIO = "Institución Educativa San Antonio de Padua"
@@ -466,9 +466,7 @@ elif menu == "📷 Scanner / Asistencia":
                                 col_a, col_b = st.columns([3, 1])
                                 col_a.write(f"❌ **{aus['nombre']}**")
                                 
-                                # --- PLANTILLAS ROTATIVAS INSTITUCIONALES ---
                                 plantillas = [
-                                    # Opción 0: Institucional Completa
                                     (
                                         f"{saludo}, señor(a) acudiente.\n\n"
                                         f"La I.E. San Antonio de Padua le informa que el/la estudiante "
@@ -480,7 +478,6 @@ elif menu == "📷 Scanner / Asistencia":
                                         f"*Docente:* {st.session_state.profe_nom}\n"
                                         f"*Área:* {ma}"
                                     ),
-                                    # Opción 1: Enfoque Académico
                                     (
                                         f"{saludo} de parte de la I.E. San Antonio de Padua.\n\n"
                                         f"Le informamos que el estudiante *{aus['nombre']}* ({ga}) "
@@ -491,7 +488,6 @@ elif menu == "📷 Scanner / Asistencia":
                                         f"Agradecemos su seguimiento oportuno.\n"
                                         f"*Docente:* {st.session_state.profe_nom}"
                                     ),
-                                    # Opción 2: Control Escolar Directo
                                     (
                                         f"{saludo}, estimado(a) acudiente.\n\n"
                                         f"El sistema de asistencia de la I.E. San Antonio de Padua "
@@ -507,16 +503,18 @@ elif menu == "📷 Scanner / Asistencia":
                                 cuerpo_msj = plantillas[idx_aus % len(plantillas)]
                                 msg_encoded = urllib.parse.quote(cuerpo_msj)
                                 num_wa = str(aus.get('whatsapp', '')).strip()
+                                
                                 link_wa = f"https://api.whatsapp.com/send?phone=57{num_wa}&text={msg_encoded}"
                                 
                                 with col_b:
-                                    # Botón HTML con JavaScript nativo: NO pasa por el servidor de Streamlit ni desestabiliza el WebSocket
+                                    # ENLACE DE NAVEGACIÓN DIRECTA: Evita bloqueo por emergentes y mantiene la conexión viva
                                     st.markdown(
                                         f'''
-                                        <button onclick="window.open('{link_wa}', '_blank')" 
-                                            style="background-color:#25D366; color:white; border:none; text-align:center; padding:8px 12px; border-radius:6px; font-weight:bold; font-size:0.88rem; width:100%; cursor:pointer;">
-                                            📲 Notificar
-                                        </button>
+                                        <a href="{link_wa}" target="_blank" rel="noopener noreferrer" style="text-decoration:none;">
+                                            <div style="background-color:#25D366; color:white; text-align:center; padding:8px 12px; border-radius:6px; font-weight:bold; font-size:0.88rem; width:100%;">
+                                                📲 Notificar
+                                            </div>
+                                        </a>
                                         ''',
                                         unsafe_allow_html=True
                                     )
