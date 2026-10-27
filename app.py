@@ -17,7 +17,7 @@ from fpdf import FPDF
 # ==============================================================================
 # --- CONSTANTES GLOBALES ---
 APP_NAME = "EduAsistencia-Pro"
-APP_VERSION = "v2.2.6"
+APP_VERSION = "v2.2.7"
 DEVELOPER_NAME = "Rubén Darío Ávila Sandoval"
 IE_INITIALS = "I.E. S.A.P."
 COLEGIO = "Institución Educativa San Antonio de Padua"
@@ -441,7 +441,7 @@ elif menu == "📷 Scanner / Asistencia":
                         ahora_col = dt.datetime.now() - dt.timedelta(hours=5)
                         hoy_col = ahora_col.strftime("%Y-%m-%d")
                         hora_msj = ahora_col.strftime("%I:%M %p")
-                        saludo = "*Buenos días*" if ahora_col.hour < 12 else ("*Buenas tardes*" if ahora_col.hour < 18 else "*Buenas noches*")
+                        saludo = "Buenos días" if ahora_col.hour < 12 else ("Buenas tardes" if ahora_col.hour < 18 else "Buenas noches")
                         
                         estudiantes_curso = obtener_estudiantes_unicos(ga)
                         
@@ -462,52 +462,29 @@ elif menu == "📷 Scanner / Asistencia":
                         
                         if ausentes:
                             st.write(f"Total ausentes: **{len(ausentes)}** de **{len(estudiantes_curso)}** matriculados.")
-                            for idx_aus, aus in enumerate(ausentes):
+                            for aus in ausentes:
                                 col_a, col_b = st.columns([3, 1])
                                 col_a.write(f"❌ **{aus['nombre']}**")
                                 
-                                plantillas = [
-                                    (
-                                        f"{saludo}, señor(a) acudiente.\n\n"
-                                        f"La I.E. San Antonio de Padua le informa que el/la estudiante "
-                                        f"*{aus['nombre']}* no asistió hoy a la clase de *{ma}* ({ga}).\n\n"
-                                        f"📋 *Detalles:*\n"
-                                        f"• Hora: {hora_msj}\n"
-                                        f"• Tema: {tema}\n\n"
-                                        f"Atentamente,\n"
-                                        f"*Docente:* {st.session_state.profe_nom}\n"
-                                        f"*Área:* {ma}"
-                                    ),
-                                    (
-                                        f"{saludo} de parte de la I.E. San Antonio de Padua.\n\n"
-                                        f"Le informamos que el estudiante *{aus['nombre']}* ({ga}) "
-                                        f"figura con inasistencia en la sesión de *{ma}* de hoy.\n\n"
-                                        f"📌 *Información:*\n"
-                                        f"• Hora: {hora_msj}\n"
-                                        f"• Tema: {tema}\n\n"
-                                        f"Agradecemos su seguimiento oportuno.\n"
-                                        f"*Docente:* {st.session_state.profe_nom}"
-                                    ),
-                                    (
-                                        f"{saludo}, estimado(a) acudiente.\n\n"
-                                        f"El sistema de asistencia de la I.E. San Antonio de Padua "
-                                        f"registra la ausencia de *{aus['nombre']}* en *{ma}* ({ga}).\n\n"
-                                        f"🕒 *Registro:*\n"
-                                        f"• Hora: {hora_msj}\n"
-                                        f"• Tema: {tema}\n\n"
-                                        f"Cordialmente,\n"
-                                        f"*{st.session_state.profe_nom}* - Docente"
-                                    )
-                                ]
+                                # --- MENSAJE ÚNICO, CORDIAL E INSTITUCIONAL ---
+                                cuerpo_msj = (
+                                    f"{saludo}, estimado(a) acudiente.\n\n"
+                                    f"La Institución Educativa San Antonio de Padua le saluda cordialmente. "
+                                    f"Le informamos que el/la estudiante *{aus['nombre']}* ({ga}) no registra asistencia "
+                                    f"a la sesión de *{ma}* del día de hoy.\n\n"
+                                    f"📋 *Detalles de la sesión:*\n"
+                                    f"• Hora del registro: {hora_msj}\n"
+                                    f"• Tema abordado: {tema}\n\n"
+                                    f"Agradecemos su atención y valioso acompañamiento en el proceso escolar.\n\n"
+                                    f"Atentamente,\n"
+                                    f"*{st.session_state.profe_nom}* - Docente"
+                                )
 
-                                cuerpo_msj = plantillas[idx_aus % len(plantillas)]
                                 msg_encoded = urllib.parse.quote(cuerpo_msj)
                                 num_wa = str(aus.get('whatsapp', '')).strip()
-                                
                                 link_wa = f"https://api.whatsapp.com/send?phone=57{num_wa}&text={msg_encoded}"
                                 
                                 with col_b:
-                                    # BOTÓN NATIVO OFICIAL DE STREAMLIT: Garantiza estabilidad total sin desconexión
                                     st.link_button(
                                         "📲 Notificar",
                                         url=link_wa,
@@ -881,7 +858,7 @@ elif menu == "📊 Reportes":
                                 x_col_pg += w_clase
                                 pdf.set_xy(x_col_pg, y_col_pg)
                         pdf.cell(w_totales, 14, "Asist", 1, 0, 'C', 1)
-                        pdf.cell(w_totales, 14, "Ausen.", 1, 1, '1', 1)
+                        pdf.cell(w_totales, 14, "Ausen.", 1, 1, 'C', 1)
                         pdf.set_font("Arial", '', 9)
 
                 st.info(f"📉 Sábana detallada (P{periodo_rep} - OFICIO/9PT) generada correctamente para {ga_rep} - {ma_rep}.")
