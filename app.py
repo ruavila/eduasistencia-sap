@@ -17,7 +17,7 @@ from fpdf import FPDF
 # ==============================================================================
 # --- CONSTANTES GLOBALES ---
 APP_NAME = "EduAsistencia-Pro"
-APP_VERSION = "v2.2.5"
+APP_VERSION = "v2.2.6"
 DEVELOPER_NAME = "Rubén Darío Ávila Sandoval"
 IE_INITIALS = "I.E. S.A.P."
 COLEGIO = "Institución Educativa San Antonio de Padua"
@@ -507,16 +507,11 @@ elif menu == "📷 Scanner / Asistencia":
                                 link_wa = f"https://api.whatsapp.com/send?phone=57{num_wa}&text={msg_encoded}"
                                 
                                 with col_b:
-                                    # ENLACE DE NAVEGACIÓN DIRECTA: Evita bloqueo por emergentes y mantiene la conexión viva
-                                    st.markdown(
-                                        f'''
-                                        <a href="{link_wa}" target="_blank" rel="noopener noreferrer" style="text-decoration:none;">
-                                            <div style="background-color:#25D366; color:white; text-align:center; padding:8px 12px; border-radius:6px; font-weight:bold; font-size:0.88rem; width:100%;">
-                                                📲 Notificar
-                                            </div>
-                                        </a>
-                                        ''',
-                                        unsafe_allow_html=True
+                                    # BOTÓN NATIVO OFICIAL DE STREAMLIT: Garantiza estabilidad total sin desconexión
+                                    st.link_button(
+                                        "📲 Notificar",
+                                        url=link_wa,
+                                        use_container_width=True
                                     )
                         else:
                             st.success("🎉 ¡No hay reportes de inasistencia pendientes hoy!")
@@ -886,7 +881,7 @@ elif menu == "📊 Reportes":
                                 x_col_pg += w_clase
                                 pdf.set_xy(x_col_pg, y_col_pg)
                         pdf.cell(w_totales, 14, "Asist", 1, 0, 'C', 1)
-                        pdf.cell(w_totales, 14, "Ausen.", 1, 1, 'C', 1)
+                        pdf.cell(w_totales, 14, "Ausen.", 1, 1, '1', 1)
                         pdf.set_font("Arial", '', 9)
 
                 st.info(f"📉 Sábana detallada (P{periodo_rep} - OFICIO/9PT) generada correctamente para {ga_rep} - {ma_rep}.")
