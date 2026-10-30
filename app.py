@@ -17,7 +17,7 @@ from fpdf import FPDF
 # ==============================================================================
 # --- CONSTANTES GLOBALES ---
 APP_NAME = "EduAsistencia-Pro"
-APP_VERSION = "v2.2.7"
+APP_VERSION = "v2.2.9"
 DEVELOPER_NAME = "Rubén Darío Ávila Sandoval"
 IE_INITIALS = "I.E. S.A.P."
 COLEGIO = "Institución Educativa San Antonio de Padua"
@@ -189,7 +189,6 @@ def obtener_estudiantes_unicos(grado_sel):
     estudiantes_unicos = []
     docs_vistos = set()
     
-    # Ordenar alfabéticamente por nombre
     est_ordenados = sorted(todos_est_raw, key=lambda x: str(x.get('nombre', '')).strip().upper())
     
     for e in est_ordenados:
@@ -462,6 +461,7 @@ elif menu == "📷 Scanner / Asistencia":
                         
                         if ausentes:
                             st.write(f"Total ausentes: **{len(ausentes)}** de **{len(estudiantes_curso)}** matriculados.")
+                            
                             for aus in ausentes:
                                 col_a, col_b = st.columns([3, 1])
                                 col_a.write(f"❌ **{aus['nombre']}**")
@@ -480,15 +480,22 @@ elif menu == "📷 Scanner / Asistencia":
                                     f"*{st.session_state.profe_nom}* - Docente"
                                 )
 
-                                msg_encoded = urllib.parse.quote(cuerpo_msj)
+                                # Sanitización robusta con urlsafe o quote estricta anti-error 1ST
+                                msg_encoded = urllib.parse.quote(cuerpo_msj, safe='')
                                 num_wa = str(aus.get('whatsapp', '')).strip()
                                 link_wa = f"https://api.whatsapp.com/send?phone=57{num_wa}&text={msg_encoded}"
                                 
                                 with col_b:
-                                    st.link_button(
-                                        "📲 Notificar",
-                                        url=link_wa,
-                                        use_container_width=True
+                                    # BOTÓN NATIVO AISLADO CON ENLACE DIRECTO SEGURO
+                                    st.markdown(
+                                        f'''
+                                        <a href="{link_wa}" target="_blank" rel="noopener noreferrer" style="text-decoration:none;">
+                                            <div style="background-color:#25D366; color:white; text-align:center; padding:8px 12px; border-radius:6px; font-weight:bold; font-size:0.88rem; width:100%;">
+                                                📲 Notificar
+                                            </div>
+                                        </a>
+                                        ''',
+                                        unsafe_allow_html=True
                                     )
                         else:
                             st.success("🎉 ¡No hay reportes de inasistencia pendientes hoy!")
