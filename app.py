@@ -17,11 +17,12 @@ from fpdf import FPDF
 # ==============================================================================
 # --- CONSTANTES GLOBALES ---
 APP_NAME = "EduAsistencia-Pro"
-APP_VERSION = "v2.2.12"
+APP_VERSION = "v2.3.0"
 DEVELOPER_NAME = "Rubén Darío Ávila Sandoval"
 IE_INITIALS = "I.E. S.A.P."
 COLEGIO = "Institución Educativa San Antonio de Padua"
 ESTADOS_ASISTENCIA = ["Presente", "Ausente", "Excusa Médica", "Permiso Institucional", "Llegada Tardía"]
+TIPOS_OBSERVACION = ["🟢 Positiva (Convivencia/Participación)", "⚠️ De Atención (Llegada Tarde/Materiales)", "🔴 Negativa (Falta/Indisciplina)", "📄 Justificación Médica/Permiso"]
 # ==============================================================================
 
 # --- INTEGRACIÓN CON MÓDULOS ---
@@ -135,10 +136,10 @@ if not st.session_state.logueado:
                             st.error("Respuesta incorrecta.")
     st.stop()
 
-# --- BARRA LATERAL ---
+# --- BARRA LATERAL CON MÓDULO OBSERVADOR ---
 with st.sidebar:
     st.title("📌 Menú")
-    menu = st.radio("Navegación", ["📚 Cursos", "👤 Estudiantes", "📷 Scanner / Asistencia", "📊 Reportes", "⚙️ Reinicio"])
+    menu = st.radio("Navegación", ["📚 Cursos", "👤 Estudiantes", "📷 Scanner / Asistencia", "📋 Observador", "📊 Reportes", "⚙️ Reinicio"])
     st.markdown("---")
     if st.button("🚪 Cerrar Sesión", use_container_width=True, type="secondary"):
         st.session_state.logueado = False
@@ -466,7 +467,6 @@ elif menu == "📷 Scanner / Asistencia":
                                 col_a, col_b = st.columns([3, 1])
                                 col_a.write(f"❌ **{aus['nombre']}**")
                                 
-                                # --- MENSAJE ÚNICO, CORDIAL E INSTITUCIONAL ---
                                 cuerpo_msj = (
                                     f"{saludo}, estimado(a) acudiente.\n\n"
                                     f"La Institución Educativa San Antonio de Padua le saluda cordialmente. "
@@ -678,7 +678,97 @@ elif menu == "📷 Scanner / Asistencia":
     else:
         st.error("No tienes cursos asignados. Por favor, crea un curso primero en la configuración.")
 
-# --- 4. SECCIÓN DE REPORTES ---
+# --- 4. NUEVO MÓDULO: OBSERVADOR DEL ESTUDIANTE ---
+elif menu == "📋 Observador":
+    st.subheader("📋 Observador del Estudiante - Novedades y Seguimiento")
+    st.caption("Registra novedades disciplinarias, académicas o positivas en cualquier momento.")
+
+    cursos = supabase.table("cursos").select("grado, materia").eq("profe_id", st.session_state.user).execute().data
+    
+    if cursos:
+        opciones_cursos_obs = sorted(list(set([f"{str(r['grado']).strip()} | {str(r['materia']).strip()}" for r in cursos])))
+        sel_obs_curso = st.selectbox("Filtrar por Curso:", opciones_cursos_obs, key="sel_curso_obs")
+        ga_obs, ma_obs = [item.strip() for item in sel_obs_curso.split(" | ")]
+        
+        estudiantes_obs = obtener_estudiantes_unicos(ga_obs)
+        
+        if estudiantes_obs:
+            with st.form("form_nueva_observacion", clear_on_submit=True):
+                st.markdown("### 📝 Añadir Nueva Observación/Anotación")
+                col_o1, col_o2 = st.columns([2, 2])
+                
+                with col_o1:
+                    dict_est = {f"{e['nombre']} ({e['documento']})": e for e in estudiantes_obs}
+                    est_sel_lbl = st.selectbox("Seleccionar Estudiante:", list(dict_est.keys()))
+                    est_obj = dict_est[est_sel_lbl]
+                    
+                with col_o2:
+                    tipo_obs = st.selectbox("Tipo de Novedad:", TIPOS_OBSERVACION)
+                    periodo_obs = st.number_input("Periodo Académico:", min_value=1, max_value=4, value=1, step=1)
+                
+                txt_observacion = st.text_area("Descripción de la Novedad (Máx. 500 caracteres):", placeholder="Escriba los detalles de la situación u observación relevante...")
+                
+                btn_guardar_obs = st.form_submit_button("✍️ Guardar Anotación en Observador", type="primary", use_container_width=True)
+                
+                if btn_guardar_obs:
+                    if txt_observacion.strip():
+                        ahora_obs = dt.datetime.now() - dt.timedelta(hours=5)
+                        payload_obs = {
+                            "estudiante_id": est_obj['documento'],
+                            "nombre_estudiante": est_obj['nombre'],
+                            "grado": ga_obs,
+                            "materia": ma_obs,
+                            "tipo": tipo_obs,
+                            "observacion": txt_observacion.strip(),
+                            "periodo": periodo_obs,
+                            "fecha": ahora_obs.strftime("%Y-%m-%d"),
+                            "hora": ahora_obs.strftime("%H:%M:%S"),
+                            "profe_id": st.session_state.user
+                        }
+                        
+                        try:
+                            supabase.table("observador").insert(payload_obs).execute()
+                            st.success(f"✅ Anotación registrada correctamente para **{est_obj['nombre']}**.")
+                            time.sleep(0.5)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error al guardar en Supabase: {e}")
+                    else:
+                        st.warning("Por favor ingrese el texto de la observación.")
+
+            st.divider()
+            st.markdown("### 📜 Registro Histórico de Novedades (Periodo Actual)")
+            
+            # Consulta de observaciones existentes
+            obs_raw = supabase.table("observador").select("*")\
+                .eq("grado", ga_obs)\
+                .eq("profe_id", st.session_state.user)\
+                .order("fecha", desc=True).execute().data
+                
+            if obs_raw:
+                for ob in obs_raw:
+                    color_borde = "#28a745" if "🟢" in ob['tipo'] else ("#ffc107" if "⚠️" in ob['tipo'] else ("#dc3545" if "🔴" in ob['tipo'] else "#17a2b8"))
+                    
+                    st.markdown(
+                        f"""
+                        <div style="border-left: 5px solid {color_borde}; background-color: #f8f9fa; padding: 12px; margin-bottom: 10px; border-radius: 4px;">
+                            <strong style="font-size: 1.05rem;">{ob['nombre_estudiante']}</strong> 
+                            <span style="color: grey; font-size: 0.85rem;"> | Fecha: {ob['fecha']} ({ob['hora'][:5]}) | P{ob['periodo']}</span><br>
+                            <span style="font-weight: bold; color: {color_borde};">{ob['tipo']}</span><br>
+                            <p style="margin-top: 5px; margin-bottom: 0px; font-size: 0.95rem;">{ob['observacion']}</p>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+            else:
+                st.info(f"No hay novedades registradas aún en el observador para el grado **{ga_obs}**.")
+
+        else:
+            st.warning(f"No hay estudiantes registrados en el grado {ga_obs}.")
+    else:
+        st.error("No tienes cursos creados para gestionar el observador.")
+
+# --- 5. SECCIÓN DE REPORTES ---
 elif menu == "📊 Reportes":
     def formatear_fecha_reporte(fecha_str):
         if not fecha_str: return ""
@@ -903,13 +993,17 @@ elif menu == "📊 Reportes":
     else:
         st.error("No tienes cursos creados. Ve a la sección de Configuración.")
 
-# --- 5. REINICIO Y PANEL ADMIN ---
+# --- 6. REINICIO Y PANEL ADMIN ---
 elif menu == "⚙️ Reinicio":
     st.subheader("Mantenimiento")
     if st.button("⚠ BORRAR MIS DATOS"):
         supabase.table("asistencia").delete().eq("profe_id", st.session_state.user).execute()
         supabase.table("estudiantes").delete().eq("profe_id", st.session_state.user).execute()
         supabase.table("cursos").delete().eq("profe_id", st.session_state.user).execute()
+        try:
+            supabase.table("observador").delete().eq("profe_id", st.session_state.user).execute()
+        except:
+            pass
         st.success("Datos eliminados correctamente.")
         st.rerun()
 
