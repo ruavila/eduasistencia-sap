@@ -17,7 +17,7 @@ from fpdf import FPDF
 # ==============================================================================
 # --- CONSTANTES GLOBALES ---
 APP_NAME = "EduAsistencia-Pro"
-APP_VERSION = "v2.2.11"
+APP_VERSION = "v2.2.12"
 DEVELOPER_NAME = "Rubén Darío Ávila Sandoval"
 IE_INITIALS = "I.E. S.A.P."
 COLEGIO = "Institución Educativa San Antonio de Padua"
@@ -480,13 +480,11 @@ elif menu == "📷 Scanner / Asistencia":
                                     f"*{st.session_state.profe_nom}* - Docente"
                                 )
 
-                                # Enlace ultra-limpio con codificación URL segura
                                 msg_encoded = urllib.parse.quote(cuerpo_msj, safe='')
                                 num_wa = str(aus.get('whatsapp', '')).strip()
                                 link_wa = f"https://wa.me/57{num_wa}?text={msg_encoded}"
                                 
                                 with col_b:
-                                    # BOTÓN HTML ESTABILIZADO CONTRA ERRORES DE SOCKET
                                     st.markdown(
                                         f'''
                                         <a href="{link_wa}" target="_blank" rel="noopener" style="text-decoration:none;">
@@ -711,7 +709,7 @@ elif menu == "📊 Reportes":
             btn_generar = st.button("📊 Generar Reporte PDF", type="primary", use_container_width=True)
 
         if btn_generar:
-            with st.spinner(f"Generando sábana detallada de {ga_rep} ({ma_rep}) - Periodo {periodo_rep}..."):
+            with st.spinner(f"Generando sábana detallada con Porcentajes y Notas de {ga_rep} ({ma_rep}) - Periodo {periodo_rep}..."):
                 todos_est = obtener_estudiantes_unicos(ga_rep)
 
                 asistencia_data = supabase.table("asistencia").select("estudiante_id, fecha, tema")\
@@ -769,9 +767,21 @@ elif menu == "📊 Reportes":
                     df_aux = reporte_final[columnas_dinamicas]
                     reporte_final['Asist'] = (df_aux == check_pi_latin).sum(axis=1)
                     reporte_final['Ausen.'] = (df_aux == 'X').sum(axis=1)
+                    
+                    total_clases_periodo = len(columnas_dinamicas)
+                    if total_clases_periodo > 0:
+                        porcentajes = (reporte_final['Asist'] / total_clases_periodo) * 100
+                        reporte_final['% Asist'] = porcentajes.apply(lambda x: f"{x:.1f}%")
+                        notas = (porcentajes / 100) * 5.0
+                        reporte_final['Nota Asis'] = notas.apply(lambda x: f"{x:.1f}")
+                    else:
+                        reporte_final['% Asist'] = "0.0%"
+                        reporte_final['Nota Asis'] = "0.0"
                 else:
                     reporte_final['Asist'] = 0
                     reporte_final['Ausen.'] = 0
+                    reporte_final['% Asist'] = "0.0%"
+                    reporte_final['Nota Asis'] = "0.0"
 
                 reporte_final['Asist'] = reporte_final['Asist'].astype(str)
                 reporte_final['Ausen.'] = reporte_final['Ausen.'].astype(str)
@@ -813,13 +823,13 @@ elif menu == "📊 Reportes":
                 pdf.ln(5)
 
                 num_clases = len(columnas_dinamicas)
-                w_num, w_est, w_totales = 12, 70, 18 
-                ancho_usado_fijo = w_num + w_est + (w_totales * 2)
+                w_num, w_est, w_totales, w_metricas = 10, 62, 14, 16 
+                ancho_usado_fijo = w_num + w_est + (w_totales * 2) + (w_metricas * 2)
                 ancho_disponible_dinamico = 335 - ancho_usado_fijo
                 
                 w_clase = (ancho_disponible_dinamico / num_clases) if num_clases > 0 else ancho_disponible_dinamico
 
-                pdf.set_font("Arial", 'B', 9)
+                pdf.set_font("Arial", 'B', 8)
                 pdf.set_fill_color(240, 240, 240)
                 
                 pdf.cell(w_num, 14, "N°", 1, 0, 'C', 1) 
@@ -835,26 +845,30 @@ elif menu == "📊 Reportes":
                     pdf.cell(ancho_disponible_dinamico, 14, clean_latin1("Sin registros de asistencia en este periodo"), 1, 0, 'C', 1)
 
                 pdf.cell(w_totales, 14, "Asist", 1, 0, 'C', 1)
-                pdf.cell(w_totales, 14, "Ausen.", 1, 1, 'C', 1)
+                pdf.cell(w_totales, 14, "Ausen.", 1, 0, 'C', 1)
+                pdf.cell(w_metricas, 14, "% Asist", 1, 0, 'C', 1)
+                pdf.cell(w_metricas, 14, "Nota Asis", 1, 1, 'C', 1)
 
-                pdf.set_font("Arial", '', 9)
+                pdf.set_font("Arial", '', 8)
                 
                 for _, fila in reporte_final.iterrows():
-                    pdf.cell(w_num, 8, fila['N°'], 1, 0, 'C')
-                    pdf.cell(w_est, 8, fila['ESTUDIANTE'], 1, 0)
+                    pdf.cell(w_num, 7, fila['N°'], 1, 0, 'C')
+                    pdf.cell(w_est, 7, fila['ESTUDIANTE'], 1, 0)
                     
                     if num_clases > 0:
                         for col_din in columnas_dinamicas:
-                            pdf.cell(w_clase, 8, fila[col_din], 1, 0, 'C')
+                            pdf.cell(w_clase, 7, fila[col_din], 1, 0, 'C')
                     else:
-                        pdf.cell(ancho_disponible_dinamico, 8, "", 1, 0)
+                        pdf.cell(ancho_disponible_dinamico, 7, "", 1, 0)
                         
-                    pdf.cell(w_totales, 8, fila['Asist'], 1, 0, 'C')
-                    pdf.cell(w_totales, 8, fila['Ausen.'], 1, 1, 'C')
+                    pdf.cell(w_totales, 7, fila['Asist'], 1, 0, 'C')
+                    pdf.cell(w_totales, 7, fila['Ausen.'], 1, 0, 'C')
+                    pdf.cell(w_metricas, 7, fila['% Asist'], 1, 0, 'C')
+                    pdf.cell(w_metricas, 7, fila['Nota Asis'], 1, 1, 'C')
                     
-                    if pdf.get_y() > 180: 
+                    if pdf.get_y() > 185: 
                         pdf.add_page()
-                        pdf.set_font("Arial", 'B', 9)
+                        pdf.set_font("Arial", 'B', 8)
                         pdf.set_fill_color(240, 240, 240)
                         pdf.cell(w_num, 14, "N°", 1, 0, 'C', 1) 
                         pdf.cell(w_est, 14, "ESTUDIANTE", 1, 0, 'C', 1)
@@ -865,18 +879,20 @@ elif menu == "📊 Reportes":
                                 x_col_pg += w_clase
                                 pdf.set_xy(x_col_pg, y_col_pg)
                         pdf.cell(w_totales, 14, "Asist", 1, 0, 'C', 1)
-                        pdf.cell(w_totales, 14, "Ausen.", 1, 1, 'C', 1)
-                        pdf.set_font("Arial", '', 9)
+                        pdf.cell(w_totales, 14, "Ausen.", 1, 0, 'C', 1)
+                        pdf.cell(w_metricas, 14, "% Asist", 1, 0, 'C', 1)
+                        pdf.cell(w_metricas, 14, "Nota Asis", 1, 1, 'C', 1)
+                        pdf.set_font("Arial", '', 8)
 
-                st.info(f"📉 Sábana detallada (P{periodo_rep} - OFICIO/9PT) generada correctamente para {ga_rep} - {ma_rep}.")
+                st.info(f"📉 Sábana detallada con % y Nota (P{periodo_rep} - OFICIO/8PT) generada correctamente para {ga_rep} - {ma_rep}.")
                 
                 pdf_output_bytes = pdf.output(dest='S')
                 pdf_file = io.BytesIO(pdf_output_bytes)
                 
                 st.download_button(
-                    label="📥 Descargar Reporte PDF Detallado (Sábana OFICIO 9PT)",
+                    label="📥 Descargar Reporte PDF con % de Asistencia y Nota (OFICIO)",
                     data=pdf_file,
-                    file_name=f"Sabana_Asistencia_{ga_rep}_{ma_rep}_P{periodo_rep}_OFICIO_9PT_{ahora_co.strftime('%Y%m%d_%H%M')}.pdf",
+                    file_name=f"Sabana_Asistencia_Notas_{ga_rep}_{ma_rep}_P{periodo_rep}_{ahora_co.strftime('%Y%m%d_%H%M')}.pdf",
                     mime="application/pdf",
                     use_container_width=True
                 )
