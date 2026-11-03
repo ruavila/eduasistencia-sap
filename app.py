@@ -17,7 +17,7 @@ from fpdf import FPDF
 # ==============================================================================
 # --- CONSTANTES GLOBALES ---
 APP_NAME = "EduAsistencia-Pro"
-APP_VERSION = "v2.3.1"
+APP_VERSION = "v2.3.3"
 DEVELOPER_NAME = "Rubén Darío Ávila Sandoval"
 IE_INITIALS = "I.E. S.A.P."
 COLEGIO = "Institución Educativa San Antonio de Padua"
@@ -136,7 +136,7 @@ if not st.session_state.logueado:
                             st.error("Respuesta incorrecta.")
     st.stop()
 
-# --- BARRA LATERAL CON MÓDULO OBSERVADOR ---
+# --- BARRA LATERAL ---
 with st.sidebar:
     st.title("📌 Menú")
     menu = st.radio("Navegación", ["📚 Cursos", "👤 Estudiantes", "📷 Scanner / Asistencia", "📋 Observador", "📊 Reportes", "⚙️ Reinicio"])
@@ -678,7 +678,7 @@ elif menu == "📷 Scanner / Asistencia":
     else:
         st.error("No tienes cursos asignados. Por favor, crea un curso primero en la configuración.")
 
-# --- 4. NUEVO MÓDULO: OBSERVADOR DEL ESTUDIANTE (CORREGIDO) ---
+# --- 4. MÓDULO: OBSERVADOR DEL ESTUDIANTE ---
 elif menu == "📋 Observador":
     st.subheader("📋 Observador del Estudiante - Novedades y Seguimiento")
     st.caption("Registra novedades disciplinarias, académicas o positivas seleccionando la fecha real de la observación.")
@@ -710,7 +710,6 @@ elif menu == "📋 Observador":
 
                 col_f1, _ = st.columns([2, 2])
                 with col_f1:
-                    # Selector de fecha personalizado (Ya no es obligatorio que sea hoy)
                     fecha_obs_input = st.date_input("Fecha de la Novedad:", value=datetime.now().date())
                 
                 txt_observacion = st.text_area("Descripción de la Novedad (Máx. 500 caracteres):", placeholder="Escriba los detalles de la situación u observación relevante...")
@@ -728,7 +727,7 @@ elif menu == "📋 Observador":
                             "tipo": tipo_obs,
                             "observacion": txt_observacion.strip(),
                             "periodo": periodo_obs,
-                            "fecha": fecha_obs_input.strftime("%Y-%m-%d"), # Fecha seleccionada por el usuario
+                            "fecha": fecha_obs_input.strftime("%Y-%m-%d"),
                             "hora": ahora_obs.strftime("%H:%M:%S"),
                             "profe_id": st.session_state.user
                         }
@@ -739,14 +738,13 @@ elif menu == "📋 Observador":
                             time.sleep(0.5)
                             st.rerun()
                         except Exception as e:
-                            st.error(f"Error al guardar en Supabase: {e}")
+                            st.error(f"Error detallado de Supabase al guardar: {e}")
                     else:
                         st.warning("Por favor ingrese el texto de la observación.")
 
             st.divider()
             st.markdown("### 📜 Registro Histórico de Novedades")
             
-            # Consulta corregida: ordenando por ID descendente para evitar fallos de formato en fechas
             try:
                 obs_raw = supabase.table("observador").select("*")\
                     .eq("grado", ga_obs)\
@@ -793,213 +791,326 @@ elif menu == "📊 Reportes":
     cursos = supabase.table("cursos").select("grado, materia").eq("profe_id", st.session_state.user).execute().data
 
     if cursos:
-        col_r1, col_r2, col_r3 = st.columns([2, 1, 1])
+        tab_rep_asist, tab_rep_obs = st.tabs(["📊 Sábana de Asistencia y Notas", "📋 Reporte del Observador (Con Anotaciones)"])
+        
+        # --- SUB-PESTAÑA 1: REPORTE DE ASISTENCIA ---
+        with tab_rep_asist:
+            col_r1, col_r2, col_r3 = st.columns([2, 1, 1])
 
-        with col_r1:
-            opciones_cursos_rep = sorted([f"{r['grado'].strip()} | {r['materia'].strip()}" for r in cursos])
-            sel_as_rep = st.selectbox("Seleccione el Curso:", opciones_cursos_rep, key="sel_curso_rep")
-            ga_rep, ma_rep = [item.strip() for item in sel_as_rep.split(" | ")]
+            with col_r1:
+                opciones_cursos_rep = sorted([f"{r['grado'].strip()} | {r['materia'].strip()}" for r in cursos])
+                sel_as_rep = st.selectbox("Seleccione el Curso:", opciones_cursos_rep, key="sel_curso_rep")
+                ga_rep, ma_rep = [item.strip() for item in sel_as_rep.split(" | ")]
 
-        with col_r2:
-            periodo_rep = st.number_input("Filtrar por Periodo Académico:", min_value=1, max_value=4, value=1, step=1, key="num_periodo_rep")
+            with col_r2:
+                periodo_rep = st.number_input("Filtrar por Periodo Académico:", min_value=1, max_value=4, value=1, step=1, key="num_periodo_rep")
 
-        with col_r3:
-            st.write("")
-            st.write("")
-            btn_generar = st.button("📊 Generar Reporte PDF", type="primary", use_container_width=True)
+            with col_r3:
+                st.write("")
+                st.write("")
+                btn_generar = st.button("📊 Generar Reporte PDF", type="primary", use_container_width=True)
 
-        if btn_generar:
-            with st.spinner(f"Generando sábana detallada con Porcentajes y Notas de {ga_rep} ({ma_rep}) - Periodo {periodo_rep}..."):
-                todos_est = obtener_estudiantes_unicos(ga_rep)
+            if btn_generar:
+                with st.spinner(f"Generando sábana detallada con Porcentajes y Notas de {ga_rep} ({ma_rep}) - Periodo {periodo_rep}..."):
+                    todos_est = obtener_estudiantes_unicos(ga_rep)
 
-                asistencia_data = supabase.table("asistencia").select("estudiante_id, fecha, tema")\
-                    .eq("grado", ga_rep)\
-                    .eq("materia", ma_rep)\
-                    .eq("periodo", periodo_rep)\
-                    .eq("profe_id", st.session_state.user).order("fecha").execute().data
+                    asistencia_data = supabase.table("asistencia").select("estudiante_id, fecha, tema")\
+                        .eq("grado", ga_rep)\
+                        .eq("materia", ma_rep)\
+                        .eq("periodo", periodo_rep)\
+                        .eq("profe_id", st.session_state.user).order("fecha").execute().data
 
-            if todos_est:
-                df_reporte = pd.DataFrame(todos_est)
-                df_reporte['nombre'] = df_reporte['nombre'].apply(clean_latin1)
-                df_reporte = df_reporte.set_index('documento')
-                
-                columnas_dinamicas = []
-                reporte_final = df_reporte.copy()
-
-                check_pi_latin = clean_latin1('V')
-
-                if asistencia_data:
-                    df_asistencia = pd.DataFrame(asistencia_data)
-                    df_asistencia['tema_limpio'] = df_asistencia['tema'].apply(lambda x: x.split(" [")[0].strip() if " [" in str(x) else str(x).strip())
-                    df_clases = df_asistencia[['fecha', 'tema_limpio']].drop_duplicates().sort_values('fecha')
-
-                    for _, clase in df_clases.iterrows():
-                        fecha_fmt = formatear_fecha_reporte(clase['fecha'])
-                        tema_clean = clean_latin1(clase['tema_limpio'])
-                        encabezado_col = f"{tema_clean}\n{fecha_fmt}"
-                        
-                        columnas_dinamicas.append(encabezado_col)
-                        reporte_final[encabezado_col] = 'X' 
-
-                    for registro in asistencia_data:
-                        id_est = registro['estudiante_id']
-                        if id_est in reporte_final.index:
-                            tema_full = str(registro['tema'])
-                            tema_reg = tema_full.split(" [")[0].strip() if " [" in tema_full else tema_full.strip()
-                            fecha_fmt_reg = formatear_fecha_reporte(registro['fecha'])
-                            
-                            col_pi = f"{clean_latin1(tema_reg)}\n{fecha_fmt_reg}"
-                            
-                            if col_pi in reporte_final.columns:
-                                if "[Excusa Médica]" in tema_full:
-                                    val_marcar = 'E'
-                                elif "[Permiso Institucional]" in tema_full:
-                                    val_marcar = 'P'
-                                elif "[Llegada Tardía]" in tema_full:
-                                    val_marcar = 'T'
-                                elif "[Ausente]" in tema_full:
-                                    val_marcar = 'X'
-                                else:
-                                    val_marcar = check_pi_latin
-                                    
-                                reporte_final.loc[id_est, col_pi] = val_marcar
-
-                    df_aux = reporte_final[columnas_dinamicas]
-                    reporte_final['Asist'] = (df_aux == check_pi_latin).sum(axis=1)
-                    reporte_final['Ausen.'] = (df_aux == 'X').sum(axis=1)
+                if todos_est:
+                    df_reporte = pd.DataFrame(todos_est)
+                    df_reporte['nombre'] = df_reporte['nombre'].apply(clean_latin1)
+                    df_reporte = df_reporte.set_index('documento')
                     
-                    total_clases_periodo = len(columnas_dinamicas)
-                    if total_clases_periodo > 0:
-                        porcentajes = (reporte_final['Asist'] / total_clases_periodo) * 100
-                        reporte_final['% Asist'] = porcentajes.apply(lambda x: f"{x:.1f}%")
-                        notas = (porcentajes / 100) * 5.0
-                        reporte_final['Nota Asis'] = notas.apply(lambda x: f"{x:.1f}")
+                    columnas_dinamicas = []
+                    reporte_final = df_reporte.copy()
+
+                    check_pi_latin = clean_latin1('V')
+
+                    if asistencia_data:
+                        df_asistencia = pd.DataFrame(asistencia_data)
+                        df_asistencia['tema_limpio'] = df_asistencia['tema'].apply(lambda x: x.split(" [")[0].strip() if " [" in str(x) else str(x).strip())
+                        df_clases = df_asistencia[['fecha', 'tema_limpio']].drop_duplicates().sort_values('fecha')
+
+                        for _, clase in df_clases.iterrows():
+                            fecha_fmt = formatear_fecha_reporte(clase['fecha'])
+                            tema_clean = clean_latin1(clase['tema_limpio'])
+                            encabezado_col = f"{tema_clean}\n{fecha_fmt}"
+                            
+                            columnas_dinamicas.append(encabezado_col)
+                            reporte_final[encabezado_col] = 'X' 
+
+                        for registro in asistencia_data:
+                            id_est = registro['estudiante_id']
+                            if id_est in reporte_final.index:
+                                tema_full = str(registro['tema'])
+                                tema_reg = tema_full.split(" [")[0].strip() if " [" in tema_full else tema_full.strip()
+                                fecha_fmt_reg = formatear_fecha_reporte(registro['fecha'])
+                                
+                                col_pi = f"{clean_latin1(tema_reg)}\n{fecha_fmt_reg}"
+                                
+                                if col_pi in reporte_final.columns:
+                                    if "[Excusa Médica]" in tema_full:
+                                        val_marcar = 'E'
+                                    elif "[Permiso Institucional]" in tema_full:
+                                        val_marcar = 'P'
+                                    elif "[Llegada Tardía]" in tema_full:
+                                        val_marcar = 'T'
+                                    elif "[Ausente]" in tema_full:
+                                        val_marcar = 'X'
+                                    else:
+                                        val_marcar = check_pi_latin
+                                        
+                                    reporte_final.loc[id_est, col_pi] = val_marcar
+
+                        df_aux = reporte_final[columnas_dinamicas]
+                        reporte_final['Asist'] = (df_aux == check_pi_latin).sum(axis=1)
+                        reporte_final['Ausen.'] = (df_aux == 'X').sum(axis=1)
+                        
+                        total_clases_periodo = len(columnas_dinamicas)
+                        if total_clases_periodo > 0:
+                            porcentajes = (reporte_final['Asist'] / total_clases_periodo) * 100
+                            reporte_final['% Asist'] = porcentajes.apply(lambda x: f"{x:.1f}%")
+                            notas = (porcentajes / 100) * 5.0
+                            reporte_final['Nota Asis'] = notas.apply(lambda x: f"{x:.1f}")
+                        else:
+                            reporte_final['% Asist'] = "0.0%"
+                            reporte_final['Nota Asis'] = "0.0"
                     else:
+                        reporte_final['Asist'] = 0
+                        reporte_final['Ausen.'] = 0
                         reporte_final['% Asist'] = "0.0%"
                         reporte_final['Nota Asis'] = "0.0"
-                else:
-                    reporte_final['Asist'] = 0
-                    reporte_final['Ausen.'] = 0
-                    reporte_final['% Asist'] = "0.0%"
-                    reporte_final['Nota Asis'] = "0.0"
 
-                reporte_final['Asist'] = reporte_final['Asist'].astype(str)
-                reporte_final['Ausen.'] = reporte_final['Ausen.'].astype(str)
-                
-                reporte_final = reporte_final.reset_index()
-                reporte_final = reporte_final.rename(columns={'nombre': 'ESTUDIANTE'})
-                reporte_final.insert(0, 'N°', range(1, 1 + len(reporte_final)))
-                reporte_final['N°'] = reporte_final['N°'].astype(str)
-
-                pdf = FPDF('L', 'mm', 'Legal')
-                pdf.add_page()
-                pdf.set_margins(10, 10, 10)
-                
-                escudo_path = os.path.join("assets", "escudo.png")
-                if os.path.exists(escudo_path):
-                    pdf.image(escudo_path, 10, 8, 25, 25)
-                
-                pdf.set_font("Arial", 'B', 16)
-                if os.path.exists(escudo_path):
-                    pdf.set_x(40)
-                
-                pdf.cell(0, 12, clean_latin1("Institución Educativa San Antonio de Padua"), 0, 1, 'C')
-                pdf.set_font("Arial", '', 11)
-                if os.path.exists(escudo_path):
-                    pdf.set_x(40)
-                
-                pdf.cell(100, 7, clean_latin1(f"Materia: {ma_rep}"), 0, 0)
-                pdf.cell(80, 7, clean_latin1(f"Grado: {ga_rep}"), 0, 0)
-                pdf.cell(0, 7, clean_latin1(f"Docente: {st.session_state.profe_nom}"), 0, 1)
-                
-                if os.path.exists(escudo_path):
-                    pdf.set_x(40)
-                
-                pdf.set_font("Arial", 'B', 11)
-                ahora_co = dt.datetime.now() - dt.timedelta(hours=5)
-                pdf.cell(100, 7, f"Fecha Reporte: {ahora_co.strftime('%d/%m/%Y')}", 0, 0)
-                pdf.cell(0, 7, clean_latin1(f"Periodo Académico Consultando: {periodo_rep}"), 0, 1)
-                
-                pdf.ln(5)
-
-                num_clases = len(columnas_dinamicas)
-                w_num, w_est, w_totales, w_metricas = 10, 62, 14, 16 
-                ancho_usado_fijo = w_num + w_est + (w_totales * 2) + (w_metricas * 2)
-                ancho_disponible_dinamico = 335 - ancho_usado_fijo
-                
-                w_clase = (ancho_disponible_dinamico / num_clases) if num_clases > 0 else ancho_disponible_dinamico
-
-                pdf.set_font("Arial", 'B', 8)
-                pdf.set_fill_color(240, 240, 240)
-                
-                pdf.cell(w_num, 14, "N°", 1, 0, 'C', 1) 
-                pdf.cell(w_est, 14, "ESTUDIANTE", 1, 0, 'C', 1)
-                
-                x_col, y_col = pdf.get_x(), pdf.get_y()
-                if num_clases > 0:
-                    for enc_completo in columnas_dinamicas:
-                        pdf.multi_cell(w_clase, 7, enc_completo, 1, 'C', 1)
-                        x_col += w_clase
-                        pdf.set_xy(x_col, y_col)
-                else:
-                    pdf.cell(ancho_disponible_dinamico, 14, clean_latin1("Sin registros de asistencia en este periodo"), 1, 0, 'C', 1)
-
-                pdf.cell(w_totales, 14, "Asist", 1, 0, 'C', 1)
-                pdf.cell(w_totales, 14, "Ausen.", 1, 0, 'C', 1)
-                pdf.cell(w_metricas, 14, "% Asist", 1, 0, 'C', 1)
-                pdf.cell(w_metricas, 14, "Nota Asis", 1, 1, 'C', 1)
-
-                pdf.set_font("Arial", '', 8)
-                
-                for _, fila in reporte_final.iterrows():
-                    pdf.cell(w_num, 7, fila['N°'], 1, 0, 'C')
-                    pdf.cell(w_est, 7, fila['ESTUDIANTE'], 1, 0)
+                    reporte_final['Asist'] = reporte_final['Asist'].astype(str)
+                    reporte_final['Ausen.'] = reporte_final['Ausen.'].astype(str)
                     
+                    reporte_final = reporte_final.reset_index()
+                    reporte_final = reporte_final.rename(columns={'nombre': 'ESTUDIANTE'})
+                    reporte_final.insert(0, 'N°', range(1, 1 + len(reporte_final)))
+                    reporte_final['N°'] = reporte_final['N°'].astype(str)
+
+                    pdf = FPDF('L', 'mm', 'Legal')
+                    pdf.add_page()
+                    pdf.set_margins(10, 10, 10)
+                    
+                    escudo_path = os.path.join("assets", "escudo.png")
+                    if os.path.exists(escudo_path):
+                        pdf.image(escudo_path, 10, 8, 25, 25)
+                    
+                    pdf.set_font("Arial", 'B', 16)
+                    if os.path.exists(escudo_path):
+                        pdf.set_x(40)
+                    
+                    pdf.cell(0, 12, clean_latin1("Institución Educativa San Antonio de Padua"), 0, 1, 'C')
+                    pdf.set_font("Arial", '', 11)
+                    if os.path.exists(escudo_path):
+                        pdf.set_x(40)
+                    
+                    pdf.cell(100, 7, clean_latin1(f"Materia: {ma_rep}"), 0, 0)
+                    pdf.cell(80, 7, clean_latin1(f"Grado: {ga_rep}"), 0, 0)
+                    pdf.cell(0, 7, clean_latin1(f"Docente: {st.session_state.profe_nom}"), 0, 1)
+                    
+                    if os.path.exists(escudo_path):
+                        pdf.set_x(40)
+                    
+                    pdf.set_font("Arial", 'B', 11)
+                    ahora_co = dt.datetime.now() - dt.timedelta(hours=5)
+                    pdf.cell(100, 7, f"Fecha Reporte: {ahora_co.strftime('%d/%m/%Y')}", 0, 0)
+                    pdf.cell(0, 7, clean_latin1(f"Periodo Académico Consultando: {periodo_rep}"), 0, 1)
+                    
+                    pdf.ln(5)
+
+                    num_clases = len(columnas_dinamicas)
+                    w_num, w_est, w_totales, w_metricas = 10, 62, 14, 16 
+                    ancho_usado_fijo = w_num + w_est + (w_totales * 2) + (w_metricas * 2)
+                    ancho_disponible_dinamico = 335 - ancho_usado_fijo
+                    
+                    w_clase = (ancho_disponible_dinamico / num_clases) if num_clases > 0 else ancho_disponible_dinamico
+
+                    pdf.set_font("Arial", 'B', 8)
+                    pdf.set_fill_color(240, 240, 240)
+                    
+                    pdf.cell(w_num, 14, "N°", 1, 0, 'C', 1) 
+                    pdf.cell(w_est, 14, "ESTUDIANTE", 1, 0, 'C', 1)
+                    
+                    x_col, y_col = pdf.get_x(), pdf.get_y()
                     if num_clases > 0:
-                        for col_din in columnas_dinamicas:
-                            pdf.cell(w_clase, 7, fila[col_din], 1, 0, 'C')
+                        for enc_completo in columnas_dinamicas:
+                            pdf.multi_cell(w_clase, 7, enc_completo, 1, 'C', 1)
+                            x_col += w_clase
+                            pdf.set_xy(x_col, y_col)
                     else:
-                        pdf.cell(ancho_disponible_dinamico, 7, "", 1, 0)
-                        
-                    pdf.cell(w_totales, 7, fila['Asist'], 1, 0, 'C')
-                    pdf.cell(w_totales, 7, fila['Ausen.'], 1, 0, 'C')
-                    pdf.cell(w_metricas, 7, fila['% Asist'], 1, 0, 'C')
-                    pdf.cell(w_metricas, 7, fila['Nota Asis'], 1, 1, 'C')
+                        pdf.cell(ancho_disponible_dinamico, 14, clean_latin1("Sin registros de asistencia en este periodo"), 1, 0, 'C', 1)
+
+                    pdf.cell(w_totales, 14, "Asist", 1, 0, 'C', 1)
+                    pdf.cell(w_totales, 14, "Ausen.", 1, 0, 'C', 1)
+                    pdf.cell(w_metricas, 14, "% Asist", 1, 0, 'C', 1)
+                    pdf.cell(w_metricas, 14, "Nota Asis", 1, 1, 'C', 1)
+
+                    pdf.set_font("Arial", '', 8)
                     
-                    if pdf.get_y() > 185: 
-                        pdf.add_page()
-                        pdf.set_font("Arial", 'B', 8)
-                        pdf.set_fill_color(240, 240, 240)
-                        pdf.cell(w_num, 14, "N°", 1, 0, 'C', 1) 
-                        pdf.cell(w_est, 14, "ESTUDIANTE", 1, 0, 'C', 1)
+                    for _, fila in reporte_final.iterrows():
+                        pdf.cell(w_num, 7, fila['N°'], 1, 0, 'C')
+                        pdf.cell(w_est, 7, fila['ESTUDIANTE'], 1, 0)
+                        
                         if num_clases > 0:
-                            x_col_pg, y_col_pg = pdf.get_x(), pdf.get_y()
-                            for enc_completo_pg in columnas_dinamicas:
-                                pdf.multi_cell(w_clase, 7, enc_completo_pg, 1, 'C', 1)
-                                x_col_pg += w_clase
-                                pdf.set_xy(x_col_pg, y_col_pg)
-                        pdf.cell(w_totales, 14, "Asist", 1, 0, 'C', 1)
-                        pdf.cell(w_totales, 14, "Ausen.", 1, 0, 'C', 1)
-                        pdf.cell(w_metricas, 14, "% Asist", 1, 0, 'C', 1)
-                        pdf.cell(w_metricas, 14, "Nota Asis", 1, 1, 'C', 1)
-                        pdf.set_font("Arial", '', 8)
+                            for col_din in columnas_dinamicas:
+                                pdf.cell(w_clase, 7, fila[col_din], 1, 0, 'C')
+                        else:
+                            pdf.cell(ancho_disponible_dinamico, 7, "", 1, 0)
+                            
+                        pdf.cell(w_totales, 7, fila['Asist'], 1, 0, 'C')
+                        pdf.cell(w_totales, 7, fila['Ausen.'], 1, 0, 'C')
+                        pdf.cell(w_metricas, 7, fila['% Asist'], 1, 0, 'C')
+                        pdf.cell(w_metricas, 7, fila['Nota Asis'], 1, 1, 'C')
+                        
+                        if pdf.get_y() > 185: 
+                            pdf.add_page()
+                            pdf.set_font("Arial", 'B', 8)
+                            pdf.set_fill_color(240, 240, 240)
+                            pdf.cell(w_num, 14, "N°", 1, 0, 'C', 1) 
+                            pdf.cell(w_est, 14, "ESTUDIANTE", 1, 0, 'C', 1)
+                            if num_clases > 0:
+                                x_col_pg, y_col_pg = pdf.get_x(), pdf.get_y()
+                                for enc_completo_pg in columnas_dinamicas:
+                                    pdf.multi_cell(w_clase, 7, enc_completo_pg, 1, 'C', 1)
+                                    x_col_pg += w_clase
+                                    pdf.set_xy(x_col_pg, y_col_pg)
+                            pdf.cell(w_totales, 14, "Asist", 1, 0, 'C', 1)
+                            pdf.cell(w_totales, 14, "Ausen.", 1, 0, 'C', 1)
+                            pdf.cell(w_metricas, 14, "% Asist", 1, 0, 'C', 1)
+                            pdf.cell(w_metricas, 14, "Nota Asis", 1, 1, 'C', 1)
+                            pdf.set_font("Arial", '', 8)
 
-                st.info(f"📉 Sábana detallada con % y Nota (P{periodo_rep} - OFICIO/8PT) generada correctamente para {ga_rep} - {ma_rep}.")
-                
-                pdf_output_bytes = pdf.output(dest='S')
-                pdf_file = io.BytesIO(pdf_output_bytes)
-                
-                st.download_button(
-                    label="📥 Descargar Reporte PDF con % de Asistencia y Nota (OFICIO)",
-                    data=pdf_file,
-                    file_name=f"Sabana_Asistencia_Notas_{ga_rep}_{ma_rep}_P{periodo_rep}_{ahora_co.strftime('%Y%m%d_%H%M')}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True
-                )
+                    st.info(f"📉 Sábana detallada con % y Nota (P{periodo_rep} - OFICIO/8PT) generada correctamente para {ga_rep} - {ma_rep}.")
+                    
+                    pdf_output_bytes = pdf.output(dest='S')
+                    pdf_file = io.BytesIO(pdf_output_bytes)
+                    
+                    st.download_button(
+                        label="📥 Descargar Reporte PDF con % de Asistencia y Nota (OFICIO)",
+                        data=pdf_file,
+                        file_name=f"Sabana_Asistencia_Notas_{ga_rep}_{ma_rep}_P{periodo_rep}_{ahora_co.strftime('%Y%m%d_%H%M')}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True
+                    )
+                else:
+                    st.error(f"No hay estudiantes matriculados en el grado {ga_rep}.")
 
-            else:
-                st.error(f"No hay estudiantes matriculados en el grado {ga_rep}.")
+        # --- SUB-PESTAÑA 2: REPORTE DEL OBSERVADOR (FILTRADO SOLO CON OBSERVACIONES) ---
+        with tab_rep_obs:
+            st.markdown("### Generar Reporte PDF del Observador por Periodo")
+            st.caption("Este reporte incluirá **únicamente** a los estudiantes que posean observaciones registradas en el periodo seleccionado.")
 
+            col_ro1, col_ro2, col_ro3 = st.columns([2, 1, 1])
+            with col_ro1:
+                opciones_cursos_obs_rep = sorted([f"{r['grado'].strip()} | {r['materia'].strip()}" for r in cursos])
+                sel_obs_rep = st.selectbox("Seleccione Curso para Reporte:", opciones_cursos_obs_rep, key="sel_curso_obs_rep")
+                ga_or, ma_or = [item.strip() for item in sel_obs_rep.split(" | ")]
+            with col_ro2:
+                periodo_obs_rep = st.number_input("Periodo:", min_value=1, max_value=4, value=1, step=1, key="num_periodo_obs_rep")
+            with col_ro3:
+                st.write("")
+                st.write("")
+                btn_generar_obs_pdf = st.button("📄 Generar PDF Observador", type="primary", use_container_width=True)
+
+            if btn_generar_obs_pdf:
+                with st.spinner(f"Consultando observaciones de {ga_or} para el Periodo {periodo_obs_rep}..."):
+                    obs_periodo_data = supabase.table("observador").select("*")\
+                        .eq("grado", ga_or)\
+                        .eq("periodo", periodo_obs_rep)\
+                        .eq("profe_id", st.session_state.user)\
+                        .order("fecha", desc=True).execute().data
+
+                if obs_periodo_data:
+                    # Agrupar observaciones por estudiante
+                    estudiantes_con_obs = {}
+                    for o in obs_periodo_data:
+                        est_id = o['estudiante_id']
+                        est_nombre = o['nombre_estudiante']
+                        if est_id not in estudiantes_con_obs:
+                            estudiantes_con_obs[est_id] = {"nombre": est_nombre, "anotaciones": []}
+                        estudiantes_con_obs[est_id]["anotaciones"].append(o)
+
+                    # Construir PDF en formato Carta Vertical
+                    pdf_obs = FPDF('P', 'mm', 'Letter')
+                    pdf_obs.set_margins(15, 15, 15)
+                    pdf_obs.add_page()
+
+                    escudo_path = os.path.join("assets", "escudo.png")
+                    if os.path.exists(escudo_path):
+                        pdf_obs.image(escudo_path, 15, 12, 20, 20)
+
+                    pdf_obs.set_font("Arial", 'B', 14)
+                    if os.path.exists(escudo_path):
+                        pdf_obs.set_x(40)
+                    pdf_obs.cell(0, 8, clean_latin1(COLEGIO), 0, 1, 'C')
+                    
+                    pdf_obs.set_font("Arial", 'B', 11)
+                    if os.path.exists(escudo_path):
+                        pdf_obs.set_x(40)
+                    pdf_obs.cell(0, 6, clean_latin1(f"REPORTE DE OBSERVADOR DEL ESTUDIANTE - PERIODO {periodo_obs_rep}"), 0, 1, 'C')
+                    
+                    pdf_obs.set_font("Arial", '', 10)
+                    pdf_obs.ln(4)
+                    pdf_obs.cell(100, 6, clean_latin1(f"Grado: {ga_or} | Materia: {ma_or}"), 0, 0)
+                    ahora_co = dt.datetime.now() - dt.timedelta(hours=5)
+                    pdf_obs.cell(0, 6, clean_latin1(f"Fecha: {ahora_co.strftime('%d/%m/%Y')}"), 0, 1, 'R')
+                    
+                    pdf_obs.ln(4)
+                    pdf_obs.set_draw_color(100, 100, 100)
+                    pdf_obs.line(15, pdf_obs.get_y(), 195, pdf_obs.get_y())
+                    pdf_obs.ln(6)
+
+                    # Iterar por cada estudiante que SI tiene observaciones
+                    for est_id, datos in estudiantes_con_obs.items():
+                        if pdf_obs.get_y() > 240:
+                            pdf_obs.add_page()
+
+                        pdf_obs.set_font("Arial", 'B', 10)
+                        pdf_obs.set_fill_color(230, 235, 245)
+                        pdf_obs.cell(0, 7, clean_latin1(f"Estudiante: {datos['nombre']} (Doc: {est_id})"), 1, 1, 'L', 1)
+                        
+                        pdf_obs.set_font("Arial", 'B', 9)
+                        pdf_obs.cell(25, 6, "Fecha", 1, 0, 'C', 0)
+                        pdf_obs.cell(50, 6, "Tipo de Novedad", 1, 0, 'C', 0)
+                        pdf_obs.cell(110, 6, "Observación / Descripción", 1, 1, 'C', 0)
+
+                        pdf_obs.set_font("Arial", '', 9)
+                        for anotacion in datos["anotaciones"]:
+                            if pdf_obs.get_y() > 255:
+                                pdf_obs.add_page()
+                            
+                            tipo_limpio = anotacion['tipo'].split(" (")[0].replace("🟢 ", "").replace("⚠️ ", "").replace("🔴 ", "").replace("📄 ", "")
+                            
+                            # Escribir filas de anotaciones
+                            pdf_obs.cell(25, 6, clean_latin1(anotacion['fecha']), 1, 0, 'C')
+                            pdf_obs.cell(50, 6, clean_latin1(tipo_limpio), 1, 0, 'L')
+                            
+                            # Usar multi_cell para textos largos de observación
+                            x_pos, y_pos = pdf_obs.get_x(), pdf_obs.get_y()
+                            pdf_obs.multi_cell(110, 6, clean_latin1(anotacion['observacion']), 1, 'L')
+                        
+                        pdf_obs.ln(4)
+
+                    st.success(f"✅ Reporte generado con éxito. Se incluyeron **{len(estudiantes_con_obs)}** estudiantes con observaciones en el Periodo {periodo_obs_rep}.")
+                    
+                    pdf_obs_bytes = pdf_obs.output(dest='S')
+                    pdf_obs_file = io.BytesIO(pdf_obs_bytes)
+
+                    st.download_button(
+                        label="📥 Descargar PDF de Observaciones del Periodo",
+                        data=pdf_obs_file,
+                        file_name=f"Observador_{ga_or}_Periodo{periodo_obs_rep}_{ahora_co.strftime('%Y%m%d')}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True
+                    )
+                else:
+                    st.warning(f"⚠️ No hay ninguna observación registrada para el grado **{ga_or}** en el **Periodo {periodo_obs_rep}**.")
     else:
         st.error("No tienes cursos creados. Ve a la sección de Configuración.")
 
