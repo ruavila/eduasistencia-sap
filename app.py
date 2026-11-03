@@ -17,7 +17,7 @@ from fpdf import FPDF
 # ==============================================================================
 # --- CONSTANTES GLOBALES ---
 APP_NAME = "EduAsistencia-Pro"
-APP_VERSION = "v2.2.10"
+APP_VERSION = "v2.2.11"
 DEVELOPER_NAME = "Rubén Darío Ávila Sandoval"
 IE_INITIALS = "I.E. S.A.P."
 COLEGIO = "Institución Educativa San Antonio de Padua"
@@ -480,16 +480,16 @@ elif menu == "📷 Scanner / Asistencia":
                                     f"*{st.session_state.profe_nom}* - Docente"
                                 )
 
-                                # USO DE LA API UNIVERSAL DE WHATSAPP (wa.me) OPTIMIZADA PARA MÓVVILES
-                                msg_encoded = urllib.parse.quote(cuerpo_msj)
+                                # Enlace ultra-limpio con codificación URL segura
+                                msg_encoded = urllib.parse.quote(cuerpo_msj, safe='')
                                 num_wa = str(aus.get('whatsapp', '')).strip()
                                 link_wa = f"https://wa.me/57{num_wa}?text={msg_encoded}"
                                 
                                 with col_b:
-                                    # BOTÓN HTML CON ENLACE UNIVERSAL WA.ME AISLADO
+                                    # BOTÓN HTML ESTABILIZADO CONTRA ERRORES DE SOCKET
                                     st.markdown(
                                         f'''
-                                        <a href="{link_wa}" target="_blank" rel="noopener noreferrer" style="text-decoration:none;">
+                                        <a href="{link_wa}" target="_blank" rel="noopener" style="text-decoration:none;">
                                             <div style="background-color:#25D366; color:white; text-align:center; padding:8px 12px; border-radius:6px; font-weight:bold; font-size:0.88rem; width:100%;">
                                                 📲 Notificar
                                             </div>
