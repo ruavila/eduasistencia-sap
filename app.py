@@ -17,7 +17,7 @@ from fpdf import FPDF
 # ==============================================================================
 # --- CONSTANTES GLOBALES ---
 APP_NAME = "EduAsistencia-Pro"
-APP_VERSION = "v2.3.0"
+APP_VERSION = "v2.3.1"
 DEVELOPER_NAME = "Rubén Darío Ávila Sandoval"
 IE_INITIALS = "I.E. S.A.P."
 COLEGIO = "Institución Educativa San Antonio de Padua"
@@ -678,10 +678,10 @@ elif menu == "📷 Scanner / Asistencia":
     else:
         st.error("No tienes cursos asignados. Por favor, crea un curso primero en la configuración.")
 
-# --- 4. NUEVO MÓDULO: OBSERVADOR DEL ESTUDIANTE ---
+# --- 4. NUEVO MÓDULO: OBSERVADOR DEL ESTUDIANTE (CORREGIDO) ---
 elif menu == "📋 Observador":
     st.subheader("📋 Observador del Estudiante - Novedades y Seguimiento")
-    st.caption("Registra novedades disciplinarias, académicas o positivas en cualquier momento.")
+    st.caption("Registra novedades disciplinarias, académicas o positivas seleccionando la fecha real de la observación.")
 
     cursos = supabase.table("cursos").select("grado, materia").eq("profe_id", st.session_state.user).execute().data
     
@@ -695,7 +695,7 @@ elif menu == "📋 Observador":
         if estudiantes_obs:
             with st.form("form_nueva_observacion", clear_on_submit=True):
                 st.markdown("### 📝 Añadir Nueva Observación/Anotación")
-                col_o1, col_o2 = st.columns([2, 2])
+                col_o1, col_o2, col_o3 = st.columns([2, 2, 1])
                 
                 with col_o1:
                     dict_est = {f"{e['nombre']} ({e['documento']})": e for e in estudiantes_obs}
@@ -704,7 +704,14 @@ elif menu == "📋 Observador":
                     
                 with col_o2:
                     tipo_obs = st.selectbox("Tipo de Novedad:", TIPOS_OBSERVACION)
-                    periodo_obs = st.number_input("Periodo Académico:", min_value=1, max_value=4, value=1, step=1)
+                    
+                with col_o3:
+                    periodo_obs = st.number_input("Periodo:", min_value=1, max_value=4, value=1, step=1)
+
+                col_f1, _ = st.columns([2, 2])
+                with col_f1:
+                    # Selector de fecha personalizado (Ya no es obligatorio que sea hoy)
+                    fecha_obs_input = st.date_input("Fecha de la Novedad:", value=datetime.now().date())
                 
                 txt_observacion = st.text_area("Descripción de la Novedad (Máx. 500 caracteres):", placeholder="Escriba los detalles de la situación u observación relevante...")
                 
@@ -721,7 +728,7 @@ elif menu == "📋 Observador":
                             "tipo": tipo_obs,
                             "observacion": txt_observacion.strip(),
                             "periodo": periodo_obs,
-                            "fecha": ahora_obs.strftime("%Y-%m-%d"),
+                            "fecha": fecha_obs_input.strftime("%Y-%m-%d"), # Fecha seleccionada por el usuario
                             "hora": ahora_obs.strftime("%H:%M:%S"),
                             "profe_id": st.session_state.user
                         }
@@ -737,13 +744,16 @@ elif menu == "📋 Observador":
                         st.warning("Por favor ingrese el texto de la observación.")
 
             st.divider()
-            st.markdown("### 📜 Registro Histórico de Novedades (Periodo Actual)")
+            st.markdown("### 📜 Registro Histórico de Novedades")
             
-            # Consulta de observaciones existentes
-            obs_raw = supabase.table("observador").select("*")\
-                .eq("grado", ga_obs)\
-                .eq("profe_id", st.session_state.user)\
-                .order("fecha", desc=True).execute().data
+            # Consulta corregida: ordenando por ID descendente para evitar fallos de formato en fechas
+            try:
+                obs_raw = supabase.table("observador").select("*")\
+                    .eq("grado", ga_obs)\
+                    .eq("profe_id", st.session_state.user)\
+                    .order("id", desc=True).execute().data
+            except Exception:
+                obs_raw = []
                 
             if obs_raw:
                 for ob in obs_raw:
@@ -753,7 +763,7 @@ elif menu == "📋 Observador":
                         f"""
                         <div style="border-left: 5px solid {color_borde}; background-color: #f8f9fa; padding: 12px; margin-bottom: 10px; border-radius: 4px;">
                             <strong style="font-size: 1.05rem;">{ob['nombre_estudiante']}</strong> 
-                            <span style="color: grey; font-size: 0.85rem;"> | Fecha: {ob['fecha']} ({ob['hora'][:5]}) | P{ob['periodo']}</span><br>
+                            <span style="color: grey; font-size: 0.85rem;"> | Fecha: {ob['fecha']} | P{ob['periodo']}</span><br>
                             <span style="font-weight: bold; color: {color_borde};">{ob['tipo']}</span><br>
                             <p style="margin-top: 5px; margin-bottom: 0px; font-size: 0.95rem;">{ob['observacion']}</p>
                         </div>
