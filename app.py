@@ -17,7 +17,7 @@ from fpdf import FPDF
 # ==============================================================================
 # --- CONSTANTES GLOBALES ---
 APP_NAME = "EduAsistencia-Pro"
-APP_VERSION = "v2.3.3"
+APP_VERSION = "v2.3.4"
 DEVELOPER_NAME = "Rubén Darío Ávila Sandoval"
 IE_INITIALS = "I.E. S.A.P."
 COLEGIO = "Institución Educativa San Antonio de Padua"
@@ -761,7 +761,7 @@ elif menu == "📋 Observador":
                         f"""
                         <div style="border-left: 5px solid {color_borde}; background-color: #f8f9fa; padding: 12px; margin-bottom: 10px; border-radius: 4px;">
                             <strong style="font-size: 1.05rem;">{ob['nombre_estudiante']}</strong> 
-                            <span style="color: grey; font-size: 0.85rem;"> | Fecha: {ob['fecha']} | P{ob['periodo']}</span><br>
+                            <span style="color: grey; font-size: 0.85rem;"> | Fecha: {ob['fecha']} ({ob['hora'][:5]}) | P{ob['periodo']}</span><br>
                             <span style="font-weight: bold; color: {color_borde};">{ob['tipo']}</span><br>
                             <p style="margin-top: 5px; margin-bottom: 0px; font-size: 0.95rem;">{ob['observacion']}</p>
                         </div>
@@ -1001,15 +1001,15 @@ elif menu == "📊 Reportes":
                 else:
                     st.error(f"No hay estudiantes matriculados en el grado {ga_rep}.")
 
-        # --- SUB-PESTAÑA 2: REPORTE DEL OBSERVADOR (FILTRADO SOLO CON OBSERVACIONES) ---
+        # --- SUB-PESTAÑA 2: REPORTE DEL OBSERVADOR (MÚLTIPLES ANOTACIONES ACUMULADAS) ---
         with tab_rep_obs:
             st.markdown("### Generar Reporte PDF del Observador por Periodo")
-            st.caption("Este reporte incluirá **únicamente** a los estudiantes que posean observaciones registradas en el periodo seleccionado.")
+            st.caption("Este reporte incluirá **únicamente** a los estudiantes que posean observaciones registradas en el periodo seleccionado, mostrando todas las anotaciones.")
 
             col_ro1, col_ro2, col_ro3 = st.columns([2, 1, 1])
             with col_ro1:
                 opciones_cursos_obs_rep = sorted([f"{r['grado'].strip()} | {r['materia'].strip()}" for r in cursos])
-                sel_obs_rep = st.selectbox("Seleccione Curso para Reporte:", opciones_cursos_obs_rep, key="sel_curso_obs_rep")
+                sel_obs_rep = st.selectbox("Seleccione Curso para Reporte:", opciones_cursos_rep, key="sel_curso_obs_rep")
                 ga_or, ma_or = [item.strip() for item in sel_obs_rep.split(" | ")]
             with col_ro2:
                 periodo_obs_rep = st.number_input("Periodo:", min_value=1, max_value=4, value=1, step=1, key="num_periodo_obs_rep")
@@ -1024,10 +1024,10 @@ elif menu == "📊 Reportes":
                         .eq("grado", ga_or)\
                         .eq("periodo", periodo_obs_rep)\
                         .eq("profe_id", st.session_state.user)\
-                        .order("fecha", desc=True).execute().data
+                        .order("fecha", desc=True).order("hora", desc=True).execute().data
 
                 if obs_periodo_data:
-                    # Agrupar observaciones por estudiante
+                    # Agrupar observaciones permitiendo múltiples anotaciones por estudiante
                     estudiantes_con_obs = {}
                     for o in obs_periodo_data:
                         est_id = o['estudiante_id']
@@ -1066,7 +1066,7 @@ elif menu == "📊 Reportes":
                     pdf_obs.line(15, pdf_obs.get_y(), 195, pdf_obs.get_y())
                     pdf_obs.ln(6)
 
-                    # Iterar por cada estudiante que SI tiene observaciones
+                    # Iterar por cada estudiante acumulando todas sus observaciones
                     for est_id, datos in estudiantes_con_obs.items():
                         if pdf_obs.get_y() > 240:
                             pdf_obs.add_page()
@@ -1077,7 +1077,7 @@ elif menu == "📊 Reportes":
                         
                         pdf_obs.set_font("Arial", 'B', 9)
                         pdf_obs.cell(25, 6, "Fecha", 1, 0, 'C', 0)
-                        pdf_obs.cell(50, 6, "Tipo de Novedad", 1, 0, 'C', 0)
+                        pdf_obs.cell(45, 6, "Tipo de Novedad", 1, 0, 'C', 0)
                         pdf_obs.cell(110, 6, "Observación / Descripción", 1, 1, 'C', 0)
 
                         pdf_obs.set_font("Arial", '', 9)
@@ -1087,17 +1087,13 @@ elif menu == "📊 Reportes":
                             
                             tipo_limpio = anotacion['tipo'].split(" (")[0].replace("🟢 ", "").replace("⚠️ ", "").replace("🔴 ", "").replace("📄 ", "")
                             
-                            # Escribir filas de anotaciones
                             pdf_obs.cell(25, 6, clean_latin1(anotacion['fecha']), 1, 0, 'C')
-                            pdf_obs.cell(50, 6, clean_latin1(tipo_limpio), 1, 0, 'L')
-                            
-                            # Usar multi_cell para textos largos de observación
-                            x_pos, y_pos = pdf_obs.get_x(), pdf_obs.get_y()
+                            pdf_obs.cell(45, 6, clean_latin1(tipo_limpio), 1, 0, 'L')
                             pdf_obs.multi_cell(110, 6, clean_latin1(anotacion['observacion']), 1, 'L')
                         
                         pdf_obs.ln(4)
 
-                    st.success(f"✅ Reporte generado con éxito. Se incluyeron **{len(estudiantes_con_obs)}** estudiantes con observaciones en el Periodo {periodo_obs_rep}.")
+                    st.success(f"✅ Reporte generado con éxito. Se incluyeron **{len(estudiantes_con_obs)}** estudiantes con un total de **{len(obs_periodo_data)}** anotaciones en el Periodo {periodo_obs_rep}.")
                     
                     pdf_obs_bytes = pdf_obs.output(dest='S')
                     pdf_obs_file = io.BytesIO(pdf_obs_bytes)
