@@ -17,7 +17,7 @@ from fpdf import FPDF
 # ==============================================================================
 # --- CONSTANTES GLOBALES ---
 APP_NAME = "EduAsistencia-Pro"
-APP_VERSION = "v2.3.6"
+APP_VERSION = "v2.3.7"
 DEVELOPER_NAME = "Rubén Darío Ávila Sandoval"
 IE_INITIALS = "I.E. S.A.P."
 COLEGIO = "Institución Educativa San Antonio de Padua"
@@ -678,10 +678,10 @@ elif menu == "📷 Scanner / Asistencia":
     else:
         st.error("No tienes cursos asignados. Por favor, crea un curso primero en la configuración.")
 
-# --- 4. MÓDULO: OBSERVADOR DEL ESTUDIANTE (DISEÑO COMPACTO) ---
+# --- 4. MÓDULO: OBSERVADOR DEL ESTUDIANTE (SIN HISTÓRICO VISUAL) ---
 elif menu == "📋 Observador":
     st.subheader("📋 Observador del Estudiante - Novedades y Seguimiento")
-    st.caption("Registra novedades disciplinarias, académicas o positivas seleccionando la fecha real de la observación.")
+    st.caption("Registra novedades disciplinarias, académicas o positivas de forma rápida y limpia.")
 
     cursos = supabase.table("cursos").select("grado, materia").eq("profe_id", st.session_state.user).execute().data
     
@@ -742,38 +742,7 @@ elif menu == "📋 Observador":
                     else:
                         st.warning("Por favor ingrese el texto de la observación.")
 
-            st.divider()
-            st.markdown("### 📜 Registro Histórico de Novedades")
-            
-            try:
-                obs_raw = supabase.table("observador").select("*")\
-                    .eq("grado", ga_obs)\
-                    .eq("profe_id", st.session_state.user)\
-                    .order("id", desc=True).execute().data
-            except Exception:
-                obs_raw = []
-                
-            if obs_raw:
-                for ob in obs_raw:
-                    color_borde = "#28a745" if "🟢" in ob['tipo'] else ("#ffc107" if "⚠️" in ob['tipo'] else ("#dc3545" if "🔴" in ob['tipo'] else "#17a2b8"))
-                    
-                    # DISEÑO COMPACTO (Reducción de espacio y eliminación de redundancias)
-                    st.markdown(
-                        f"""
-                        <div style="border-left: 4px solid {color_borde}; background-color: #f8f9fa; padding: 6px 10px; margin-bottom: 6px; border-radius: 4px; color: #333;">
-                            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; margin-bottom: 2px;">
-                                <strong style="color: #111;">{ob['nombre_estudiante']}</strong>
-                                <span style="color: #666;">📅 {ob['fecha']} | ⏰ {ob['hora'][:5]} | P{ob['periodo']}</span>
-                            </div>
-                            <div style="font-weight: bold; color: {color_borde}; font-size: 0.82rem;">{ob['tipo']}</div>
-                            <p style="margin: 2px 0 0 0; font-size: 0.88rem; line-height: 1.2;">{ob['observacion']}</p>
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
-            else:
-                st.info(f"No hay novedades registradas aún en el observador para el grado **{ga_obs}**.")
-
+            st.success("💡 Las observaciones se almacenan de forma segura y se compilan directamente en el **Módulo de Reportes** en formato PDF por periodo.")
         else:
             st.warning(f"No hay estudiantes registrados en el grado {ga_obs}.")
     else:
