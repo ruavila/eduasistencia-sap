@@ -17,7 +17,7 @@ from fpdf import FPDF
 # ==============================================================================
 # --- CONSTANTES GLOBALES ---
 APP_NAME = "EduAsistencia-Pro"
-APP_VERSION = "v2.3.5"
+APP_VERSION = "v2.3.6"
 DEVELOPER_NAME = "Rubén Darío Ávila Sandoval"
 IE_INITIALS = "I.E. S.A.P."
 COLEGIO = "Institución Educativa San Antonio de Padua"
@@ -678,7 +678,7 @@ elif menu == "📷 Scanner / Asistencia":
     else:
         st.error("No tienes cursos asignados. Por favor, crea un curso primero en la configuración.")
 
-# --- 4. MÓDULO: OBSERVADOR DEL ESTUDIANTE ---
+# --- 4. MÓDULO: OBSERVADOR DEL ESTUDIANTE (DISEÑO COMPACTO) ---
 elif menu == "📋 Observador":
     st.subheader("📋 Observador del Estudiante - Novedades y Seguimiento")
     st.caption("Registra novedades disciplinarias, académicas o positivas seleccionando la fecha real de la observación.")
@@ -757,13 +757,16 @@ elif menu == "📋 Observador":
                 for ob in obs_raw:
                     color_borde = "#28a745" if "🟢" in ob['tipo'] else ("#ffc107" if "⚠️" in ob['tipo'] else ("#dc3545" if "🔴" in ob['tipo'] else "#17a2b8"))
                     
+                    # DISEÑO COMPACTO (Reducción de espacio y eliminación de redundancias)
                     st.markdown(
                         f"""
-                        <div style="border-left: 5px solid {color_borde}; background-color: #f8f9fa; padding: 12px; margin-bottom: 10px; border-radius: 4px;">
-                            <strong style="font-size: 1.05rem;">{ob['nombre_estudiante']}</strong> 
-                            <span style="color: grey; font-size: 0.85rem;"> | Fecha: {ob['fecha']} ({ob['hora'][:5]}) | P{ob['periodo']}</span><br>
-                            <span style="font-weight: bold; color: {color_borde};">{ob['tipo']}</span><br>
-                            <p style="margin-top: 5px; margin-bottom: 0px; font-size: 0.95rem;">{ob['observacion']}</p>
+                        <div style="border-left: 4px solid {color_borde}; background-color: #f8f9fa; padding: 6px 10px; margin-bottom: 6px; border-radius: 4px; color: #333;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; margin-bottom: 2px;">
+                                <strong style="color: #111;">{ob['nombre_estudiante']}</strong>
+                                <span style="color: #666;">📅 {ob['fecha']} | ⏰ {ob['hora'][:5]} | P{ob['periodo']}</span>
+                            </div>
+                            <div style="font-weight: bold; color: {color_borde}; font-size: 0.82rem;">{ob['tipo']}</div>
+                            <p style="margin: 2px 0 0 0; font-size: 0.88rem; line-height: 1.2;">{ob['observacion']}</p>
                         </div>
                         """,
                         unsafe_allow_html=True
@@ -1001,7 +1004,7 @@ elif menu == "📊 Reportes":
                 else:
                     st.error(f"No hay estudiantes matriculados en el grado {ga_rep}.")
 
-        # --- SUB-PESTAÑA 2: REPORTE DEL OBSERVADOR (MÚLTIPLES FILAS CORREGIDO) ---
+        # --- SUB-PESTAÑA 2: REPORTE DEL OBSERVADOR ---
         with tab_rep_obs:
             st.markdown("### Generar Reporte PDF del Observador por Periodo")
             st.caption("Este reporte incluirá **únicamente** a los estudiantes que posean observaciones registradas en el periodo seleccionado, mostrando todas las anotaciones.")
@@ -1027,7 +1030,6 @@ elif menu == "📊 Reportes":
                         .order("fecha", desc=False).order("id", desc=False).execute().data
 
                 if obs_periodo_data:
-                    # Agrupar observaciones por estudiante
                     estudiantes_con_obs = {}
                     for o in obs_periodo_data:
                         est_id = o['estudiante_id']
@@ -1036,7 +1038,6 @@ elif menu == "📊 Reportes":
                             estudiantes_con_obs[est_id] = {"nombre": est_nombre, "anotaciones": []}
                         estudiantes_con_obs[est_id]["anotaciones"].append(o)
 
-                    # Construir PDF en formato Carta Vertical
                     pdf_obs = FPDF('P', 'mm', 'Letter')
                     pdf_obs.set_margins(15, 15, 15)
                     pdf_obs.add_page()
@@ -1066,7 +1067,6 @@ elif menu == "📊 Reportes":
                     pdf_obs.line(15, pdf_obs.get_y(), 195, pdf_obs.get_y())
                     pdf_obs.ln(6)
 
-                    # Iterar por cada estudiante acumulando todas sus observaciones
                     for est_id, datos in estudiantes_con_obs.items():
                         if pdf_obs.get_y() > 240:
                             pdf_obs.add_page()
@@ -1088,22 +1088,18 @@ elif menu == "📊 Reportes":
                             tipo_limpio = anotacion['tipo'].split(" (")[0].replace("🟢 ", "").replace("⚠️ ", "").replace("🔴 ", "").replace("📄 ", "")
                             txt_obs_clean = clean_latin1(anotacion['observacion'])
                             
-                            # Cálculo preciso de coordenadas para evitar solapamiento en multi_cell
                             x_ini = pdf_obs.get_x()
                             y_ini = pdf_obs.get_y()
                             
-                            # Escribir la columna de observación primero a la derecha para saber el alto real
                             pdf_obs.set_xy(x_ini + 70, y_ini)
                             pdf_obs.multi_cell(115, 6, txt_obs_clean, 1, 'L')
                             y_fin = pdf_obs.get_y()
                             alto_fila = max(6, y_fin - y_ini)
                             
-                            # Posicionar e imprimir las dos celdas fijas de la izquierda con la misma altura calculada
                             pdf_obs.set_xy(x_ini, y_ini)
                             pdf_obs.cell(25, alto_fila, clean_latin1(anotacion['fecha']), 1, 0, 'C')
                             pdf_obs.cell(45, alto_fila, clean_latin1(tipo_limpio), 1, 0, 'L')
                             
-                            # Mover la posición global de impresión al final de la fila procesada
                             pdf_obs.set_xy(x_ini, y_fin)
                         
                         pdf_obs.ln(4)
