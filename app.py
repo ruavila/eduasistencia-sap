@@ -17,7 +17,7 @@ from fpdf import FPDF
 # ==============================================================================
 # --- CONSTANTES GLOBALES ---
 APP_NAME = "EduAsistencia-Pro"
-APP_VERSION = "v2.3.4"
+APP_VERSION = "v2.3.5"
 DEVELOPER_NAME = "Rubén Darío Ávila Sandoval"
 IE_INITIALS = "I.E. S.A.P."
 COLEGIO = "Institución Educativa San Antonio de Padua"
@@ -1001,7 +1001,7 @@ elif menu == "📊 Reportes":
                 else:
                     st.error(f"No hay estudiantes matriculados en el grado {ga_rep}.")
 
-        # --- SUB-PESTAÑA 2: REPORTE DEL OBSERVADOR (MÚLTIPLES ANOTACIONES ACUMULADAS) ---
+        # --- SUB-PESTAÑA 2: REPORTE DEL OBSERVADOR (MÚLTIPLES FILAS CORREGIDO) ---
         with tab_rep_obs:
             st.markdown("### Generar Reporte PDF del Observador por Periodo")
             st.caption("Este reporte incluirá **únicamente** a los estudiantes que posean observaciones registradas en el periodo seleccionado, mostrando todas las anotaciones.")
@@ -1009,7 +1009,7 @@ elif menu == "📊 Reportes":
             col_ro1, col_ro2, col_ro3 = st.columns([2, 1, 1])
             with col_ro1:
                 opciones_cursos_obs_rep = sorted([f"{r['grado'].strip()} | {r['materia'].strip()}" for r in cursos])
-                sel_obs_rep = st.selectbox("Seleccione Curso para Reporte:", opciones_cursos_rep, key="sel_curso_obs_rep")
+                sel_obs_rep = st.selectbox("Seleccione Curso para Reporte:", opciones_cursos_obs_rep, key="sel_curso_obs_rep")
                 ga_or, ma_or = [item.strip() for item in sel_obs_rep.split(" | ")]
             with col_ro2:
                 periodo_obs_rep = st.number_input("Periodo:", min_value=1, max_value=4, value=1, step=1, key="num_periodo_obs_rep")
@@ -1024,10 +1024,10 @@ elif menu == "📊 Reportes":
                         .eq("grado", ga_or)\
                         .eq("periodo", periodo_obs_rep)\
                         .eq("profe_id", st.session_state.user)\
-                        .order("fecha", desc=True).order("hora", desc=True).execute().data
+                        .order("fecha", desc=False).order("id", desc=False).execute().data
 
                 if obs_periodo_data:
-                    # Agrupar observaciones permitiendo múltiples anotaciones por estudiante
+                    # Agrupar observaciones por estudiante
                     estudiantes_con_obs = {}
                     for o in obs_periodo_data:
                         est_id = o['estudiante_id']
@@ -1078,18 +1078,33 @@ elif menu == "📊 Reportes":
                         pdf_obs.set_font("Arial", 'B', 9)
                         pdf_obs.cell(25, 6, "Fecha", 1, 0, 'C', 0)
                         pdf_obs.cell(45, 6, "Tipo de Novedad", 1, 0, 'C', 0)
-                        pdf_obs.cell(110, 6, "Observación / Descripción", 1, 1, 'C', 0)
+                        pdf_obs.cell(115, 6, "Observación / Descripción", 1, 1, 'C', 0)
 
                         pdf_obs.set_font("Arial", '', 9)
                         for anotacion in datos["anotaciones"]:
-                            if pdf_obs.get_y() > 255:
+                            if pdf_obs.get_y() > 250:
                                 pdf_obs.add_page()
                             
                             tipo_limpio = anotacion['tipo'].split(" (")[0].replace("🟢 ", "").replace("⚠️ ", "").replace("🔴 ", "").replace("📄 ", "")
+                            txt_obs_clean = clean_latin1(anotacion['observacion'])
                             
-                            pdf_obs.cell(25, 6, clean_latin1(anotacion['fecha']), 1, 0, 'C')
-                            pdf_obs.cell(45, 6, clean_latin1(tipo_limpio), 1, 0, 'L')
-                            pdf_obs.multi_cell(110, 6, clean_latin1(anotacion['observacion']), 1, 'L')
+                            # Cálculo preciso de coordenadas para evitar solapamiento en multi_cell
+                            x_ini = pdf_obs.get_x()
+                            y_ini = pdf_obs.get_y()
+                            
+                            # Escribir la columna de observación primero a la derecha para saber el alto real
+                            pdf_obs.set_xy(x_ini + 70, y_ini)
+                            pdf_obs.multi_cell(115, 6, txt_obs_clean, 1, 'L')
+                            y_fin = pdf_obs.get_y()
+                            alto_fila = max(6, y_fin - y_ini)
+                            
+                            # Posicionar e imprimir las dos celdas fijas de la izquierda con la misma altura calculada
+                            pdf_obs.set_xy(x_ini, y_ini)
+                            pdf_obs.cell(25, alto_fila, clean_latin1(anotacion['fecha']), 1, 0, 'C')
+                            pdf_obs.cell(45, alto_fila, clean_latin1(tipo_limpio), 1, 0, 'L')
+                            
+                            # Mover la posición global de impresión al final de la fila procesada
+                            pdf_obs.set_xy(x_ini, y_fin)
                         
                         pdf_obs.ln(4)
 
