@@ -17,7 +17,7 @@ from fpdf import FPDF
 # ==============================================================================
 # --- CONSTANTES GLOBALES ---
 APP_NAME = "EduAsistencia-Pro"
-APP_VERSION = "v2.3.7"
+APP_VERSION = "v2.3.8"
 DEVELOPER_NAME = "Rubén Darío Ávila Sandoval"
 IE_INITIALS = "I.E. S.A.P."
 COLEGIO = "Institución Educativa San Antonio de Padua"
@@ -233,93 +233,123 @@ if menu == "📚 Cursos":
                 supabase.table("cursos").delete().eq("id", r['id']).execute()
                 st.rerun()
 
-# --- 2. ESTUDIANTES Y CARNETS ---
+# --- 2. ESTUDIANTES, CARNETS Y GESTIÓN DE BAJAS ---
 elif menu == "👤 Estudiantes":
-    st.subheader("Carga de Estudiantes y Carnetización")
+    st.subheader("Gestión de Estudiantes y Carnetización")
     import uuid
 
     cursos = supabase.table("cursos").select("grado, materia").eq("profe_id", st.session_state.user).execute().data
     if cursos:
-        opciones_cursos = sorted([f"{r['grado'].strip()} | {r['materia'].strip()}" for r in cursos])
-        sel = st.selectbox("Curso:", opciones_cursos)
+        tab_carga, tab_retiro = st.tabs(["📥 Cargar / Generar Carnets", "🚫 Retirar / Dar de Baja Estudiante"])
         
-        gs, ms = [x.strip() for x in sel.split(" | ")]
-        f = st.file_uploader("Subir Excel", type=["xlsx"])
-        
-        if f and st.button("Procesar y Generar PDF"):
-            df = pd.read_excel(f)
-            df.columns = [str(c).strip().lower() for c in df.columns]
+        # SUB-TAB 1: CARGA DE EXCEL
+        with tab_carga:
+            opciones_cursos = sorted([f"{r['grado'].strip()} | {r['materia'].strip()}" for r in cursos])
+            sel = st.selectbox("Curso:", opciones_cursos, key="sel_curso_carga")
             
-            pdf = io.BytesIO()
-            canv = canvas.Canvas(pdf, pagesize=letter)
-            ancho_pg, alto_pg = letter
+            gs, ms = [x.strip() for x in sel.split(" | ")]
+            f = st.file_uploader("Subir Excel", type=["xlsx"])
             
-            x, y, col = 1.5*cm, alto_pg - 5*cm, 0
-            docs_procesados = set()
-            
-            for index, r in df.iterrows():
-                id_base = str(r.get('estudiante_id', r.get('documento', r.get('id', '')))).split('.')[0].strip()
+            if f and st.button("Procesar y Generar PDF"):
+                df = pd.read_excel(f)
+                df.columns = [str(c).strip().lower() for c in df.columns]
                 
-                if not id_base or id_base.lower() in ['nan', 'none', '']:
-                    e_id = f"EST-{uuid.uuid4().hex[:8].upper()}"
-                else:
-                    e_id = f"{gs.replace(' ', '')}-{id_base}"
+                pdf = io.BytesIO()
+                canv = canvas.Canvas(pdf, pagesize=letter)
+                ancho_pg, alto_pg = letter
                 
-                if e_id in docs_procesados:
-                    continue
-                docs_procesados.add(e_id)
+                x, y, col = 1.5*cm, alto_pg - 5*cm, 0
+                docs_procesados = set()
                 
-                e_nm = str(r.get('nombre', '')).upper().strip()
-                e_ws = "".join(filter(str.isdigit, str(r.get('whatsapp', '')))).split('.')[0]
-                
-                supabase.table("estudiantes").upsert({
-                    "documento": e_id, 
-                    "nombre": e_nm, 
-                    "whatsapp": e_ws, 
-                    "grado": gs, 
-                    "materia": ms, 
-                    "profe_id": st.session_state.user
-                }, on_conflict="documento").execute()
-                
-                qr_engine = qrcode.QRCode(
-                    version=1, 
-                    error_correction=qrcode.constants.ERROR_CORRECT_H, 
-                    box_size=10, 
-                    border=4
-                )
-                qr_engine.add_data(str(e_id))
-                qr_engine.make(fit=True)
-                img_qr = qr_engine.make_image(fill_color="black", back_color="white")
-                
-                tmp_filename = f"qr_{gs}_{index}_{e_id}.png".replace("/", "_").replace("\\", "_")
-                tmp_qr_path = os.path.join(tempfile.gettempdir(), tmp_filename)
-                img_qr.save(tmp_qr_path)
+                for index, r in df.iterrows():
+                    id_base = str(r.get('estudiante_id', r.get('documento', r.get('id', '')))).split('.')[0].strip()
+                    
+                    if not id_base or id_base.lower() in ['nan', 'none', '']:
+                        e_id = f"EST-{uuid.uuid4().hex[:8].upper()}"
+                    else:
+                        e_id = f"{gs.replace(' ', '')}-{id_base}"
+                    
+                    if e_id in docs_procesados:
+                        continue
+                    docs_procesados.add(e_id)
+                    
+                    e_nm = str(r.get('nombre', '')).upper().strip()
+                    e_ws = "".join(filter(str.isdigit, str(r.get('whatsapp', '')))).split('.')[0]
+                    
+                    supabase.table("estudiantes").upsert({
+                        "documento": e_id, 
+                        "nombre": e_nm, 
+                        "whatsapp": e_ws, 
+                        "grado": gs, 
+                        "materia": ms, 
+                        "profe_id": st.session_state.user
+                    }, on_conflict="documento").execute()
+                    
+                    qr_engine = qrcode.QRCode(
+                        version=1, 
+                        error_correction=qrcode.constants.ERROR_CORRECT_H, 
+                        box_size=10, 
+                        border=4
+                    )
+                    qr_engine.add_data(str(e_id))
+                    qr_engine.make(fit=True)
+                    img_qr = qr_engine.make_image(fill_color="black", back_color="white")
+                    
+                    tmp_filename = f"qr_{gs}_{index}_{e_id}.png".replace("/", "_").replace("\\", "_")
+                    tmp_qr_path = os.path.join(tempfile.gettempdir(), tmp_filename)
+                    img_qr.save(tmp_qr_path)
 
-                canv.drawInlineImage(tmp_qr_path, x, y, 4*cm, 4*cm)
-                canv.setFont("Helvetica-Bold", 7)
-                canv.drawCentredString(x + 2*cm, y - 0.4*cm, e_nm[:25])
-                canv.setFont("Helvetica", 6)
-                canv.drawCentredString(x + 2*cm, y - 0.8*cm, f"Grado: {gs} - {IE_INITIALS}")
+                    canv.drawInlineImage(tmp_qr_path, x, y, 4*cm, 4*cm)
+                    canv.setFont("Helvetica-Bold", 7)
+                    canv.drawCentredString(x + 2*cm, y - 0.4*cm, e_nm[:25])
+                    canv.setFont("Helvetica", 6)
+                    canv.drawCentredString(x + 2*cm, y - 0.8*cm, f"Grado: {gs} - {IE_INITIALS}")
+                    
+                    if os.path.exists(tmp_qr_path):
+                        try: os.remove(tmp_qr_path)
+                        except: pass
+                    
+                    col += 1
+                    if col >= 3:
+                        x = 1.5*cm
+                        y -= 6.0*cm
+                        col = 0
+                    else: 
+                        x += 6.5*cm
+                    
+                    if y < 2*cm: 
+                        canv.showPage()
+                        x, y, col = 1.5*cm, alto_pg - 5*cm, 0
+                    
+                canv.save()
+                st.success(f"Se procesaron {len(docs_procesados)} estudiantes únicos y se generaron sus carnets.")
+                st.download_button("📥 Descargar Carnets", pdf.getvalue(), f"Carnets_{gs}.pdf")
+
+        # SUB-TAB 2: RETIRAR ESTUDIANTE DIRECTAMENTE
+        with tab_retiro:
+            st.info("Utilice esta opción para retirar a un estudiante de un grado. Dejará de aparecer en la asistencia y reportes sin afectar a sus compañeros.")
+            
+            opciones_cursos_ret = sorted(list(set([f"{r['grado'].strip()}" for r in cursos])))
+            grado_ret_sel = st.selectbox("Seleccione el Grado:", opciones_cursos_ret, key="sel_grado_retiro")
+            
+            estudiantes_grado = obtener_estudiantes_unicos(grado_ret_sel)
+            
+            if estudiantes_grado:
+                mapa_ret = {f"{e['nombre']} (Doc: {e['documento']})": e for e in estudiantes_grado}
+                est_ret_lbl = st.selectbox("Seleccione el Estudiante a Retirar:", list(mapa_ret.keys()))
+                est_ret_obj = mapa_ret[est_ret_lbl]
                 
-                if os.path.exists(tmp_qr_path):
-                    try: os.remove(tmp_qr_path)
-                    except: pass
-                
-                col += 1
-                if col >= 3:
-                    x = 1.5*cm
-                    y -= 6.0*cm
-                    col = 0
-                else: 
-                    x += 6.5*cm
-                
-                if y < 2*cm: 
-                    canv.showPage()
-                    x, y, col = 1.5*cm, alto_pg - 5*cm, 0
-                
-            canv.save()
-            st.success(f"Se procesaron {len(docs_procesados)} estudiantes únicos y se generaron sus carnets.")
-            st.download_button("📥 Descargar Carnets", pdf.getvalue(), f"Carnets_{gs}.pdf")
+                if st.button("🔴 Marcar Estudiante como Retirado", type="primary", use_container_width=True):
+                    # Actualizar grado a RETIRADO en Supabase
+                    supabase.table("estudiantes").update({
+                        "grado": f"RETIRADO-{grado_ret_sel}"
+                    }).eq("documento", est_ret_obj['documento']).eq("profe_id", st.session_state.user).execute()
+                    
+                    st.success(f"✅ El estudiante **{est_ret_obj['nombre']}** ha sido retirado del grado **{grado_ret_sel}** con éxito.")
+                    time.sleep(1)
+                    st.rerun()
+            else:
+                st.warning(f"No hay estudiantes activos matriculados en el grado {grado_ret_sel}.")
 
 # --- 3. SCANNER QR, LISTA MANUAL Y MODIFICACIÓN ---
 elif menu == "📷 Scanner / Asistencia":
@@ -678,7 +708,7 @@ elif menu == "📷 Scanner / Asistencia":
     else:
         st.error("No tienes cursos asignados. Por favor, crea un curso primero en la configuración.")
 
-# --- 4. MÓDULO: OBSERVADOR DEL ESTUDIANTE (SIN HISTÓRICO VISUAL) ---
+# --- 4. MÓDULO: OBSERVADOR DEL ESTUDIANTE ---
 elif menu == "📋 Observador":
     st.subheader("📋 Observador del Estudiante - Novedades y Seguimiento")
     st.caption("Registra novedades disciplinarias, académicas o positivas de forma rápida y limpia.")
