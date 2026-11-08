@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import uuid
 import qrcode
 import io
 import os
@@ -17,7 +18,7 @@ from fpdf import FPDF
 # ==============================================================================
 # --- CONSTANTES GLOBALES ---
 APP_NAME = "EduAsistencia-Pro"
-APP_VERSION = "v2.3.8"
+APP_VERSION = "v2.3.9"
 DEVELOPER_NAME = "Rubén Darío Ávila Sandoval"
 IE_INITIALS = "I.E. S.A.P."
 COLEGIO = "Institución Educativa San Antonio de Padua"
@@ -233,16 +234,19 @@ if menu == "📚 Cursos":
                 supabase.table("cursos").delete().eq("id", r['id']).execute()
                 st.rerun()
 
-# --- 2. ESTUDIANTES, CARNETS Y GESTIÓN DE BAJAS ---
+# --- 2. ESTUDIANTES, CARNETS Y GESTIÓN ---
 elif menu == "👤 Estudiantes":
     st.subheader("Gestión de Estudiantes y Carnetización")
-    import uuid
 
     cursos = supabase.table("cursos").select("grado, materia").eq("profe_id", st.session_state.user).execute().data
     if cursos:
-        tab_carga, tab_retiro = st.tabs(["📥 Cargar / Generar Carnets", "🚫 Retirar / Dar de Baja Estudiante"])
+        tab_carga, tab_nuevo, tab_retiro = st.tabs([
+            "📥 Cargar / Generar Masivo (Excel)", 
+            "➕ Ingresar Estudiante Nuevo", 
+            "🚫 Retirar / Dar de Baja"
+        ])
         
-        # SUB-TAB 1: CARGA DE EXCEL
+        # SUB-TAB 1: CARGA DE EXCEL MASIVA
         with tab_carga:
             opciones_cursos = sorted([f"{r['grado'].strip()} | {r['materia'].strip()}" for r in cursos])
             sel = st.selectbox("Curso:", opciones_cursos, key="sel_curso_carga")
@@ -325,7 +329,84 @@ elif menu == "👤 Estudiantes":
                 st.success(f"Se procesaron {len(docs_procesados)} estudiantes únicos y se generaron sus carnets.")
                 st.download_button("📥 Descargar Carnets", pdf.getvalue(), f"Carnets_{gs}.pdf")
 
-        # SUB-TAB 2: RETIRAR ESTUDIANTE DIRECTAMENTE
+        # SUB-TAB 2: INGRESAR ESTUDIANTE NUEVO (INDIVIDUAL)
+        with tab_nuevo:
+            st.markdown("### ➕ Registrar Alumno Nuevo")
+            st.caption("Ingresa los datos del estudiante nuevo. Se integrará automáticamente en el orden alfabético sin afectar los carnets de los demás.")
+
+            opciones_cursos_nuevo = sorted([f"{r['grado'].strip()} | {r['materia'].strip()}" for r in cursos])
+            sel_curso_nuevo = st.selectbox("Seleccione el Curso:", opciones_cursos_nuevo, key="sel_curso_nuevo_ind")
+            gs_n, ms_n = [x.strip() for x in sel_curso_nuevo.split(" | ")]
+
+            with st.form("form_nuevo_estudiante"):
+                n_nombre = st.text_input("Nombre Completo (Escribir primero APELLIDOS, luego Nombres):", placeholder="EJ: PÉREZ GÓMEZ JUAN CARLOS")
+                n_doc = st.text_input("Número de Documento (Opcional - Si se deja vacío se autogenera):", placeholder="Ej: 1085123456")
+                n_whatsapp = st.text_input("WhatsApp de contacto del acudiente (Opcional):", placeholder="Ej: 3101234567")
+
+                btn_guardar_nuevo = st.form_submit_button("✨ Guardar y Generar Carnet QR", type="primary", use_container_width=True)
+
+                if btn_guardar_nuevo:
+                    if n_nombre.strip():
+                        id_base = n_doc.strip()
+                        if not id_base:
+                            e_id = f"EST-{uuid.uuid4().hex[:8].upper()}"
+                        else:
+                            e_id = f"{gs_n.replace(' ', '')}-{id_base}"
+
+                        e_nm = n_nombre.upper().strip()
+                        e_ws = "".join(filter(str.isdigit, str(n_whatsapp))).split('.')[0]
+
+                        try:
+                            # Guardar en Supabase
+                            supabase.table("estudiantes").upsert({
+                                "documento": e_id,
+                                "nombre": e_nm,
+                                "whatsapp": e_ws,
+                                "grado": gs_n,
+                                "materia": ms_n,
+                                "profe_id": st.session_state.user
+                            }, on_conflict="documento").execute()
+
+                            st.success(f"✅ ¡Estudiante **{e_nm}** registrado con éxito en el grado **{gs_n}**!")
+
+                            # Generar PDF del carnet individual para el estudiante nuevo
+                            pdf_ind = io.BytesIO()
+                            canv_i = canvas.Canvas(pdf_ind, pagesize=letter)
+                            
+                            qr_engine = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=10, border=4)
+                            qr_engine.add_data(str(e_id))
+                            qr_engine.make(fit=True)
+                            img_qr_i = qr_engine.make_image(fill_color="black", back_color="white")
+                            
+                            tmp_path_i = os.path.join(tempfile.gettempdir(), f"qr_nuevo_{e_id}.png")
+                            img_qr_i.save(tmp_path_i)
+
+                            canv_i.drawInlineImage(tmp_path_i, 1.5*cm, 22*cm, 4*cm, 4*cm)
+                            canv_i.setFont("Helvetica-Bold", 8)
+                            canv_i.drawString(6*cm, 24.5*cm, f"Estudiante: {e_nm[:30]}")
+                            canv_i.setFont("Helvetica", 8)
+                            canv_i.drawString(6*cm, 23.5*cm, f"Grado: {gs_n} - Asignatura: {ms_n}")
+                            canv_i.drawString(6*cm, 22.5*cm, f"Institución Educativa San Antonio de Padua")
+                            
+                            if os.path.exists(tmp_path_i):
+                                try: os.remove(tmp_path_i)
+                                except: pass
+
+                            canv_i.save()
+
+                            st.download_button(
+                                label="📥 Descargar Carnet QR del Estudiante Nuevo",
+                                data=pdf_ind.getvalue(),
+                                file_name=f"Carnet_{e_nm.replace(' ', '_')}.pdf",
+                                mime="application/pdf",
+                                use_container_width=True
+                            )
+                        except Exception as e:
+                            st.error(f"Error al registrar al estudiante en Supabase: {e}")
+                    else:
+                        st.warning("Por favor ingrese el nombre completo del estudiante.")
+
+        # SUB-TAB 3: RETIRAR ESTUDIANTE DIRECTAMENTE
         with tab_retiro:
             st.info("Utilice esta opción para retirar a un estudiante de un grado. Dejará de aparecer en la asistencia y reportes sin afectar a sus compañeros.")
             
@@ -340,7 +421,6 @@ elif menu == "👤 Estudiantes":
                 est_ret_obj = mapa_ret[est_ret_lbl]
                 
                 if st.button("🔴 Marcar Estudiante como Retirado", type="primary", use_container_width=True):
-                    # Actualizar grado a RETIRADO en Supabase
                     supabase.table("estudiantes").update({
                         "grado": f"RETIRADO-{grado_ret_sel}"
                     }).eq("documento", est_ret_obj['documento']).eq("profe_id", st.session_state.user).execute()
