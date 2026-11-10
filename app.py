@@ -18,7 +18,7 @@ from fpdf import FPDF
 # ==============================================================================
 # --- CONSTANTES GLOBALES ---
 APP_NAME = "EduAsistencia-Pro"
-APP_VERSION = "v2.3.9"
+APP_VERSION = "v2.3.10"
 DEVELOPER_NAME = "Rubén Darío Ávila Sandoval"
 IE_INITIALS = "I.E. S.A.P."
 COLEGIO = "Institución Educativa San Antonio de Padua"
@@ -52,7 +52,7 @@ if 'sel_curso_scan' not in st.session_state:
     st.session_state.sel_curso_scan = None
 
 def resetear_estado_escaneo():
-    """Limpia variables temporales asociadas al escáner e inactiva captura."""
+    """Limpia variables temporales asociadas al escáner e inactiva captura de forma segura."""
     for key in list(st.session_state.keys()):
         if key.startswith("sc_"):
             del st.session_state[key]
@@ -357,7 +357,6 @@ elif menu == "👤 Estudiantes":
                         e_ws = "".join(filter(str.isdigit, str(n_whatsapp))).split('.')[0]
 
                         try:
-                            # Guardar en Supabase
                             supabase.table("estudiantes").upsert({
                                 "documento": e_id,
                                 "nombre": e_nm,
@@ -369,7 +368,6 @@ elif menu == "👤 Estudiantes":
 
                             st.success(f"✅ ¡Estudiante **{e_nm}** registrado con éxito en el grado **{gs_n}**!")
 
-                            # Generar PDF del carnet individual para el estudiante nuevo
                             pdf_ind = io.BytesIO()
                             canv_i = canvas.Canvas(pdf_ind, pagesize=letter)
                             
@@ -431,7 +429,7 @@ elif menu == "👤 Estudiantes":
             else:
                 st.warning(f"No hay estudiantes activos matriculados en el grado {grado_ret_sel}.")
 
-# --- 3. SCANNER QR, LISTA MANUAL Y MODIFICACIÓN ---
+# --- 3. SCANNER QR, LISTA MANUAL Y MODIFICACIÓN (PROTECCIÓN WHATSAPP Y SESIÓN) ---
 elif menu == "📷 Scanner / Asistencia":
     st.subheader("Captura y Gestión de Asistencia por Periodo")
     
@@ -487,8 +485,14 @@ elif menu == "📷 Scanner / Asistencia":
                             st.session_state.captura_finalizada = True
                             st.rerun()
                         
-                        key_scanner = f"sc_{ga}_{ma}_{periodo_actual}".replace(" ", "_")
-                        cod = qrcode_scanner(key=key_scanner)
+                        key_scanner = f"sc_{ga}_{ma}_{periodo_actual}".replace(" ", "_").replace("|", "_")
+                        
+                        # Manejo seguro para evitar 'Code: 1st'
+                        try:
+                            cod = qrcode_scanner(key=key_scanner)
+                        except Exception:
+                            cod = None
+                            st.caption("Cargando módulo de escáner...")
                         
                         if cod:
                             id_cl = str(cod).strip()
@@ -573,7 +577,7 @@ elif menu == "📷 Scanner / Asistencia":
                         if ausentes:
                             st.write(f"Total ausentes: **{len(ausentes)}** de **{len(estudiantes_curso)}** matriculados.")
                             
-                            for aus in ausentes:
+                            for idx_a, aus in enumerate(ausentes):
                                 col_a, col_b = st.columns([3, 1])
                                 col_a.write(f"❌ **{aus['nombre']}**")
                                 
@@ -595,15 +599,12 @@ elif menu == "📷 Scanner / Asistencia":
                                 link_wa = f"https://wa.me/57{num_wa}?text={msg_encoded}"
                                 
                                 with col_b:
-                                    st.markdown(
-                                        f'''
-                                        <a href="{link_wa}" target="_blank" rel="noopener" style="text-decoration:none;">
-                                            <div style="background-color:#25D366; color:white; text-align:center; padding:8px 12px; border-radius:6px; font-weight:bold; font-size:0.88rem; width:100%;">
-                                                📲 Notificar
-                                            </div>
-                                        </a>
-                                        ''',
-                                        unsafe_allow_html=True
+                                    # Integración nativa de enlace para no romper el session_state al salir
+                                    st.link_button(
+                                        "📲 Notificar WA", 
+                                        link_wa, 
+                                        use_container_width=True, 
+                                        help=f"Enviar WhatsApp al acudiente de {aus['nombre']}"
                                     )
                         else:
                             st.success("🎉 ¡No hay reportes de inasistencia pendientes hoy!")
