@@ -18,7 +18,7 @@ from fpdf import FPDF
 # ==============================================================================
 # --- CONSTANTES GLOBALES ---
 APP_NAME = "EduAsistencia-Pro"
-APP_VERSION = "v2.3.10"
+APP_VERSION = "v2.3.11"
 DEVELOPER_NAME = "Rubén Darío Ávila Sandoval"
 IE_INITIALS = "I.E. S.A.P."
 COLEGIO = "Institución Educativa San Antonio de Padua"
@@ -64,6 +64,19 @@ def cerrar_clase_actual():
     st.session_state.tema_clase_actual = ""
     st.session_state.sel_curso_scan = None
     resetear_estado_escaneo()
+
+# --- FORMATEADOR DE FECHAS EN ESPAÑOL ---
+def obtener_fecha_larga_espanol(fecha_obj):
+    """Convierte un objeto fecha en formato: Viernes 13 de noviembre de 2026."""
+    dias = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+    meses = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+    
+    dia_sem = dias[fecha_obj.weekday()]
+    dia_num = fecha_obj.day
+    mes_str = meses[fecha_obj.month - 1]
+    anio = fecha_obj.year
+    
+    return f"{dia_sem} {dia_num} de {mes_str} de {anio}"
 
 # --- BLOQUE 1: AUTENTICACIÓN Y RECUPERACIÓN ---
 if not st.session_state.logueado:
@@ -487,7 +500,6 @@ elif menu == "📷 Scanner / Asistencia":
                         
                         key_scanner = f"sc_{ga}_{ma}_{periodo_actual}".replace(" ", "_").replace("|", "_")
                         
-                        # Manejo seguro para evitar 'Code: 1st'
                         try:
                             cod = qrcode_scanner(key=key_scanner)
                         except Exception:
@@ -554,6 +566,7 @@ elif menu == "📷 Scanner / Asistencia":
                         
                         ahora_col = dt.datetime.now() - dt.timedelta(hours=5)
                         hoy_col = ahora_col.strftime("%Y-%m-%d")
+                        fecha_larga_texto = obtener_fecha_larga_espanol(ahora_col)
                         hora_msj = ahora_col.strftime("%I:%M %p")
                         saludo = "Buenos días" if ahora_col.hour < 12 else ("Buenas tardes" if ahora_col.hour < 18 else "Buenas noches")
                         
@@ -586,6 +599,7 @@ elif menu == "📷 Scanner / Asistencia":
                                     f"La Institución Educativa San Antonio de Padua le saluda cordialmente. "
                                     f"Le informamos que el/la estudiante *{aus['nombre']}* ({ga}) no registra asistencia "
                                     f"a la sesión de *{ma}* del día de hoy.\n\n"
+                                    f"📅 **Fecha:** {fecha_larga_texto}\n"
                                     f"📋 *Detalles de la sesión:*\n"
                                     f"• Hora del registro: {hora_msj}\n"
                                     f"• Tema abordado: {tema}\n\n"
@@ -599,7 +613,6 @@ elif menu == "📷 Scanner / Asistencia":
                                 link_wa = f"https://wa.me/57{num_wa}?text={msg_encoded}"
                                 
                                 with col_b:
-                                    # Integración nativa de enlace para no romper el session_state al salir
                                     st.link_button(
                                         "📲 Notificar WA", 
                                         link_wa, 
